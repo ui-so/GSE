@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 #include "Visuals.h"
+#include "FirstLevel.h"
+#include "LevelView.h"
+#include "AssetCache.h"
+#include "SceneModels.h"
 
 #undef NDEBUG
 #include <cassert>
@@ -58,6 +62,8 @@ HGDIOBJ oldFont;
 HWND windowHandle;
 std::map<wchar_t, GLuint> glyphs;
 std::wstring speaker, dialog;
+FirstLevel::World firstWorld;
+bool firstLevelMode = true;
 int pending = -1;
 int talkingNpc = -1;
 struct Object
@@ -182,6 +188,10 @@ void text(float x, float y, const std::wstring &s, C c = ink)
         glCallList(glyphs[ch]);
     }
 }
+void LevelText(float x, float y, const std::wstring &content, float r, float g, float b)
+{
+    text(x, y, content, {r, g, b});
+}
 void wrapped(float x, float y, const std::wstring &s, int columns = 58)
 {
     int row = 0;
@@ -285,23 +295,8 @@ void updateWildlife(float dt)
 }
 void fire(V p, float size)
 {
-    Visuals::SoftShadow(p.x, p.y + 4, 23 * size, .42f, .7f);
-    glow(p + V{0, -10 * size}, 70 * size, gold);
-    line(p + V{-12 * size, 3}, p + V{12 * size, -3}, {.24f, .16f, .09f}, 5);
-    line(p + V{-10 * size, -3}, p + V{10 * size, 3}, {.35f, .21f, .11f}, 5);
-    for (int j = 0; j < 7; j++)
-    {
-        float life = fmodf(worldTime * 1.7f + j * .147f, 1.f);
-        float x = sinf(worldTime * 5 + j * 2) * 5 * size;
-        ellipse(p + V{x, -life * 36 * size}, (1 - life) * 7 * size + 1, (1 - life) * 12 * size + 1,
-                {1.f, .27f + life * .45f, .06f, .7f * (1 - life)});
-    }
-    for (int j = 0; j < 5; j++)
-    {
-        float life = fmodf(worldTime * .7f + j * .21f, 1.f);
-        ellipse(p + V{sinf(life * 10 + j) * 12 * size, -25 * size - life * 45 * size}, 1, 2,
-                {1, .67f, .22f, 1 - life});
-    }
+    SceneModels::Draw(SceneModels::Kind::Brazier, p.x, p.y, size);
+    Visuals::Flame(p.x, p.y - 8 * size, size, worldTime);
 }
 void animal(V p, const Beast &a)
 {
@@ -556,6 +551,22 @@ void interact()
 }
 void update(float dt)
 {
+    if (firstLevelMode)
+    {
+        if (!active || paused)
+            return;
+        worldTime += dt;
+        float x = float(keys['D'] - keys['A']), y = float(keys['S'] - keys['W']);
+        FirstLevel::Position previous = firstWorld.Player().position;
+        firstWorld.Update(dt, {(x + y) * .70710678f, (y - x) * .70710678f}, keys[VK_SHIFT]);
+        if (keys[VK_SPACE])
+            firstWorld.Attack();
+        auto position = firstWorld.Player().position;
+        moving = std::abs(position.x - previous.x) + std::abs(position.y - previous.y) > .0001f;
+        player = {position.x, position.y};
+        camera = camera + (player - camera) * std::min(1.f, dt * 5);
+        return;
+    }
     if (!active || paused)
         return;
     worldTime += dt;
@@ -624,7 +635,9 @@ void drawWorld()
     glPushMatrix();
     glTranslatef(worldTime * .024f, worldTime * .012f, 0);
     glMatrixMode(GL_MODELVIEW);
+    Visuals::BeginWater(worldTime);
     glCallList(terrainList + 1);
+    Visuals::EndEffect();
     glMatrixMode(GL_TEXTURE);
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
@@ -811,6 +824,13 @@ void draw()
     glLoadIdentity();
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (firstLevelMode)
+    {
+        LevelView::Draw(firstWorld,
+                        {width, height, worldTime, camera.x, camera.y, paused, postEnabled, moving},
+                        LevelText);
+        return;
+    }
     drawWorld();
     Visuals::PostProcess(width, height, worldTime, postEnabled);
     rect(0, 0, float(width), 6, {.67f, .51f, .28f});
@@ -874,6 +894,16 @@ void draw()
 }
 void reset()
 {
+    if (firstLevelMode)
+    {
+        firstWorld.Generate(static_cast<std::uint32_t>(GetTickCount64()));
+        player = {.5f, .5f};
+        camera = player;
+        paused = false;
+        moving = false;
+        std::fill(keys, keys + 256, false);
+        return;
+    }
     initWildlife();
     moving = false;
     actionTime = 0;
@@ -936,6 +966,56 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             keys[w] = true;
         if (l & (1 << 30))
             return 0;
+        if (w == VK_F1)
+        {
+            firstLevelMode = !firstLevelMode;
+            dialog.clear();
+            paused = false;
+            std::fill(keys, keys + 256, false);
+            if (firstLevelMode)
+            {
+                auto p = firstWorld.Player().position;
+                player = {p.x, p.y};
+                camera = player;
+            }
+            else
+                reset();
+            return 0;
+        }
+        if (firstLevelMode)
+        {
+            if (w == VK_ESCAPE)
+            {
+                paused = !paused;
+                std::fill(keys, keys + 256, false);
+            }
+            else if (w == VK_F2)
+                postEnabled = !postEnabled;
+            else if (w == 'Q' && paused)
+                running = false;
+            else if (w == 'R' && firstWorld.IsDead())
+            {
+                firstWorld.Respawn();
+                player = {.5f, .5f};
+                camera = player;
+            }
+            else if (w == 'R' && paused)
+                reset();
+            else if (!paused)
+            {
+                if (w == 'E')
+                    firstWorld.Pickup();
+                else if (w == 'Q')
+                    firstWorld.UsePotion();
+                else if (w == '1')
+                    firstWorld.SpendPoint(FirstLevel::Stat::Strength);
+                else if (w == '2')
+                    firstWorld.SpendPoint(FirstLevel::Stat::Vitality);
+                else if (w == '3')
+                    firstWorld.SpendPoint(FirstLevel::Stat::Guard);
+            }
+            return 0;
+        }
         if (w == VK_ESCAPE)
         {
             paused = !paused;
@@ -987,6 +1067,7 @@ float routeDistance(V start, V goal)
 }
 int tests()
 {
+    firstLevelMode = false;
     initWorld();
     static_assert(sizeof(npcs) / sizeof(npcs[0]) == 16, "NPC count must be 16");
     assert((MAX_X - MIN_X) * (MAX_Y - MIN_Y) == 4 * 41 * 37);
@@ -1083,7 +1164,16 @@ int tests()
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
 {
     if (wcsstr(command, L"--self-test"))
-        return tests();
+    {
+        int legacy = tests();
+        std::string report;
+        FirstLevel::World tested;
+        bool okay = tested.RunTests(report);
+        okay = AssetCache::RunTests(report) && okay;
+        std::ofstream file("first-level-test-report.txt");
+        file << report;
+        return legacy == 0 && okay ? 0 : 3;
+    }
     WNDCLASSW wc{};
     wc.style = CS_OWNDC;
     wc.lpfnWndProc = proc;
@@ -1113,9 +1203,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     font = CreateFontW(-17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, HANGUL_CHARSET, OUT_DEFAULT_PRECIS,
                        CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
     oldFont = SelectObject(dc, font);
+    AssetCache::Initialize();
     Visuals::Initialize();
+    SceneModels::Initialize();
     initWorld();
+    bool levelShot = wcsstr(command, L"--capture-level") != nullptr;
     bool shot = wcsstr(command, L"--capture") != nullptr;
+    firstLevelMode = levelShot || (!shot && wcsstr(command, L"--tutorial") == nullptr);
+    firstWorld.Generate(levelShot ? 42u : static_cast<std::uint32_t>(GetTickCount64()));
+    if (firstLevelMode)
+    {
+        player = {.5f, .5f};
+        camera = player;
+    }
     ShowWindow(windowHandle, shot ? SW_HIDE : SW_SHOW);
     if (wcsstr(command, L"--no-post"))
         postEnabled = false;
@@ -1138,7 +1238,32 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         last = now;
         update(dt);
         draw();
-        if (shot)
+        if (levelShot)
+        {
+            capture("level1-start.bmp");
+            firstWorld.Attack();
+            worldTime = .12f;
+            draw();
+            capture("level1-attack.bmp");
+            firstWorld.Pickup();
+            firstWorld.AwardExperience(60);
+            draw();
+            capture("level1-growth.bmp");
+            firstWorld.SpendPoint(FirstLevel::Stat::Strength);
+            draw();
+            capture("level1-complete.bmp");
+            width = 1000;
+            height = 720;
+            draw();
+            capture("level1-small.bmp");
+            const auto &cache = AssetCache::Stats();
+            std::ofstream report("level1-render-report.txt");
+            report << "Post=" << Visuals::PostAvailable() << " Water/Fire=" << Visuals::EffectsAvailable()
+                   << "\nCache loaded=" << cache.loaded << " generated=" << cache.generated
+                   << " writeFailures=" << cache.writeFailures << "\n";
+            running = false;
+        }
+        else if (shot)
         {
             std::ofstream renderReport("render-report.txt");
             renderReport << "GL: " << glGetString(GL_VERSION) << "\nRenderer: " << glGetString(GL_RENDERER)
@@ -1200,6 +1325,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         glDeleteLists(treeList, 1);
     if (terrainList)
         glDeleteLists(terrainList, 2);
+    LevelView::Shutdown();
     Visuals::Shutdown();
     for (auto g : glyphs)
         glDeleteLists(g.second, 1);

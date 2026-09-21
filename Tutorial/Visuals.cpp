@@ -8,11 +8,12 @@
 #include <cstdint>
 #include <fstream>
 #include "Visuals.h"
+#include "AssetCache.h"
 namespace Visuals
 {
 namespace
 {
-GLuint materials[4]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0;
+GLuint materials[4]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
 int sceneW = 0, sceneH = 0;
 using CreateShaderT = GLuint(APIENTRY *)(GLenum);
 using ShaderSourceT = void(APIENTRY *)(GLuint, GLsizei, const char *const *, const GLint *);
@@ -80,14 +81,14 @@ struct Pixel
     unsigned char r, g, b, a;
 };
 // Rasterize actual animation frames once; gameplay selects atlas cells, not stick-figure transforms.
-const int FW = 64, FH = 80, COLS = 8, ROWS = 12, AW = FW * COLS, AH = FH * ROWS;
+const int FW = 64, FH = 80, COLS = 8, ROWS = 16, AW = FW * COLS, AH = FH * ROWS;
 std::vector<unsigned char> atlasPreview;
 std::vector<unsigned char> bakeSprite(int palette)
 {
     std::vector<unsigned char> pixels(AW * AH * 4, 0);
     const Pixel outfits[] = {
         {57, 107, 117, 255}, {115, 78, 60, 255}, {91, 104, 70, 255}, {110, 89, 123, 255}};
-    for (int action = 0; action < 3; action++)
+    for (int action = 0; action < 4; action++)
         for (int face = 0; face < 4; face++)
             for (int frame = 0; frame < 8; frame++)
             {
@@ -140,7 +141,9 @@ std::vector<unsigned char> bakeSprite(int palette)
                 box(31, 48 - bob, 4, 4, {187, 151, 82, 255});
                 oval(21, 33 - bob, 5, 6, cloth);
                 oval(43, 33 - bob, 5, 6, cloth);
-                int hand = action == 2 ? int(9 + 5 * sinf(phase)) : swing;
+                int hand = action == 3   ? int(12 + 12 * sinf(phase))
+                           : action == 2 ? int(9 + 5 * sinf(phase))
+                                         : swing;
                 box(17, 36 - bob, 5, 13 + hand / 2, leather);
                 oval(19, 50 - bob + hand / 2, 3, 4, skin);
                 box(44, 36 - bob - hand, 5, 14, leather);
@@ -159,6 +162,11 @@ std::vector<unsigned char> bakeSprite(int palette)
                 }
                 box(29, 35 - bob, 3, 11, {156, 135, 94, 255});
                 box(38, 36 - bob, 2, 10, {51, 47, 38, 255});
+                if (action == 3)
+                {
+                    box(46, 29 - bob - hand, 3, 25, {169, 178, 174, 255});
+                    box(42, 48 - bob - hand, 11, 3, {139, 106, 52, 255});
+                }
                 if (palette == 0)
                 {
                     box(48, 49 - bob - hand, 6, 9, {218, 163, 71, 255});
@@ -237,81 +245,136 @@ void main(){vec3 c=texture2D(scene,uv).rgb;
         program = 0;
     }
 }
+void loadEffects()
+{
+    if (!program)
+        return;
+    const char *vertex = R"GLSL(#version 120
+varying vec2 uv;varying vec2 world;varying vec4 tint;
+void main(){gl_Position=gl_ModelViewProjectionMatrix*gl_Vertex;uv=gl_MultiTexCoord0.xy;world=gl_Vertex.xy;tint=gl_Color;})GLSL";
+    const char *fragment = R"GLSL(#version 120
+uniform sampler2D image;uniform float clock;uniform int mode;varying vec2 uv;varying vec2 world;varying vec4 tint;
+void main(){
+ if(mode==0){
+  vec2 flow=uv+vec2(clock*0.018,clock*0.011);float wave=sin(world.x*0.065+world.y*0.1-clock*1.6)*0.008+sin(world.y*0.09+clock)*0.006;
+  vec3 c=texture2D(image,flow+vec2(wave,-wave)).rgb;
+  float crest=pow(max(0.0,sin(world.x*0.085+world.y*0.045+clock*1.7)),12.0);
+  gl_FragColor=vec4((c+vec3(0.09,0.15,0.14)*crest)*tint.rgb,1.0);
+ }else{
+  float y=1.0-uv.y;float bend=sin(y*10.0-clock*6.0)*0.08*y+sin(clock*9.0+y*17.0)*0.025;
+  float x=abs(uv.x-0.5-bend);float radius=(1.0-y)*0.30*(0.8+0.2*sin(clock*7.0+y*11.0));
+  float shape=(1.0-smoothstep(radius*0.65,radius+0.045,x))*smoothstep(0.0,0.10,y)*(1.0-smoothstep(0.8,1.0,y));
+  float core=1.0-smoothstep(0.0,radius+0.01,x);vec3 c=mix(vec3(1.0,0.16,0.025),vec3(1.0,0.85,0.28),core*(1.0-y));
+  float spark=step(0.992,fract(sin(floor(uv.x*31.0)*17.13+floor((uv.y+clock*.45)*24.0)*41.71)*437.5))*smoothstep(.4,.9,y)*.45;
+  gl_FragColor=vec4(c,max(shape,spark));
+ }
+})GLSL";
+    GLuint v = shader(0x8B31, vertex), f = shader(0x8B30, fragment);
+    if (!v || !f)
+    {
+        if (v)
+            deleteShader(v);
+        if (f)
+            deleteShader(f);
+        return;
+    }
+    effectsProgram = createProgram();
+    attachShader(effectsProgram, v);
+    attachShader(effectsProgram, f);
+    linkProgram(effectsProgram);
+    GLint okay = 0;
+    getProgramiv(effectsProgram, 0x8B82, &okay);
+    deleteShader(v);
+    deleteShader(f);
+    if (!okay)
+    {
+        deleteProgram(effectsProgram);
+        effectsProgram = 0;
+    }
+}
 } // namespace
 bool Initialize()
 {
     for (int type = 0; type < 4; type++)
     {
-        std::vector<unsigned char> data(128 * 128 * 4);
-        for (int y = 0; y < 128; y++)
-            for (int x = 0; x < 128; x++)
-            {
-                float n = noise(x, y), r, g, b;
-                if (type == 0)
+        auto data = AssetCache::LoadOrCreate("material-" + std::to_string(type), 128 * 128 * 4, [type]() {
+            std::vector<unsigned char> data(128 * 128 * 4);
+            for (int y = 0; y < 128; y++)
+                for (int x = 0; x < 128; x++)
                 {
-                    float blade = (x % 9 == 0 && y % 17 < 8) ? .08f : 0;
-                    r = .15f + n * .025f + blade * .3f;
-                    g = .22f + n * .035f + blade;
-                    b = .15f + n * .02f;
-                }
-                else if (type == 1)
-                {
-                    int row = y / 32, xx = (x + (row % 2) * 32) % 64, yy = y % 32;
-                    bool gap = xx < 2 || yy < 2 || xx > 61;
-                    float slab = noise((x + (row % 2) * 32) / 64, row);
-                    float edge = (xx == 2 || yy == 2) ? .10f : 0;
-                    r = gap ? .105f : .29f + slab * .10f + n * .045f + edge;
-                    g = gap ? .13f : .30f + slab * .09f + n * .04f + edge;
-                    b = gap ? .095f : .25f + slab * .06f + n * .04f + edge;
-                }
-                else if (type == 2)
-                {
-                    r = .26f + n * .11f;
-                    g = .24f + n * .09f;
-                    b = .17f + n * .07f;
-                    if (n > .94f)
+                    float n = noise(x, y), r, g, b;
+                    if (type == 0)
                     {
-                        r += .07f;
-                        g += .065f;
-                        b += .05f;
+                        float blade = (x % 9 == 0 && y % 17 < 8) ? .08f : 0;
+                        r = .15f + n * .025f + blade * .3f;
+                        g = .22f + n * .035f + blade;
+                        b = .15f + n * .02f;
                     }
+                    else if (type == 1)
+                    {
+                        int row = y / 32, xx = (x + (row % 2) * 32) % 64, yy = y % 32;
+                        bool gap = xx < 2 || yy < 2 || xx > 61;
+                        float slab = noise((x + (row % 2) * 32) / 64, row);
+                        float edge = (xx == 2 || yy == 2) ? .10f : 0;
+                        r = gap ? .105f : .29f + slab * .10f + n * .045f + edge;
+                        g = gap ? .13f : .30f + slab * .09f + n * .04f + edge;
+                        b = gap ? .095f : .25f + slab * .06f + n * .04f + edge;
+                    }
+                    else if (type == 2)
+                    {
+                        r = .26f + n * .11f;
+                        g = .24f + n * .09f;
+                        b = .17f + n * .07f;
+                        if (n > .94f)
+                        {
+                            r += .07f;
+                            g += .065f;
+                            b += .05f;
+                        }
+                    }
+                    else
+                    {
+                        float ripple = sinf(x * .17f + sinf(y * .12f) * 2) * .015f;
+                        r = .065f + n * .015f;
+                        g = .20f + n * .025f + ripple;
+                        b = .24f + n * .035f + ripple;
+                    }
+                    size_t i = size_t(y * 128 + x) * 4;
+                    data[i] = static_cast<unsigned char>(r * 255);
+                    data[i + 1] = static_cast<unsigned char>(g * 255);
+                    data[i + 2] = static_cast<unsigned char>(b * 255);
+                    data[i + 3] = 255;
                 }
-                else
-                {
-                    float ripple = sinf(x * .17f + sinf(y * .12f) * 2) * .015f;
-                    r = .065f + n * .015f;
-                    g = .20f + n * .025f + ripple;
-                    b = .24f + n * .035f + ripple;
-                }
-                size_t i = size_t(y * 128 + x) * 4;
-                data[i] = static_cast<unsigned char>(r * 255);
-                data[i + 1] = static_cast<unsigned char>(g * 255);
-                data[i + 2] = static_cast<unsigned char>(b * 255);
-                data[i + 3] = 255;
-            }
+            return data;
+        });
         materials[type] = upload(128, 128, data, true);
     }
     for (int i = 0; i < 4; i++)
     {
-        auto pixels = bakeSprite(i);
+        auto pixels = AssetCache::LoadOrCreate("sprite-" + std::to_string(i), AW * AH * 4,
+                                               [i]() { return bakeSprite(i); });
         sprites[i] = upload(AW, AH, pixels);
         if (i == 0)
             atlasPreview = pixels;
     }
-    std::vector<unsigned char> pixels(128 * 128 * 4);
-    for (int y = 0; y < 128; y++)
-        for (int x = 0; x < 128; x++)
-        {
-            float d = std::sqrt(powf((x - 63.5f) / 64, 2) + powf((y - 63.5f) / 64, 2));
-            int i = (y * 128 + x) * 4;
-            pixels[i] = 7;
-            pixels[i + 1] = 13;
-            pixels[i + 2] = 18;
-            pixels[i + 3] = static_cast<unsigned char>(std::max(0.f, 1 - d) * std::max(0.f, 1 - d) * 220);
-        }
+    auto pixels = AssetCache::LoadOrCreate("shadow", 128 * 128 * 4, []() {
+        std::vector<unsigned char> pixels(128 * 128 * 4);
+        for (int y = 0; y < 128; y++)
+            for (int x = 0; x < 128; x++)
+            {
+                float d = std::sqrt(powf((x - 63.5f) / 64, 2) + powf((y - 63.5f) / 64, 2));
+                int i = (y * 128 + x) * 4;
+                pixels[i] = 7;
+                pixels[i + 1] = 13;
+                pixels[i + 2] = 18;
+                pixels[i + 3] = static_cast<unsigned char>(std::max(0.f, 1 - d) * std::max(0.f, 1 - d) * 220);
+            }
+        return pixels;
+    });
     shadow = upload(128, 128, pixels);
     glGenTextures(1, &scene);
     loadPost();
+    loadEffects();
     return program != 0;
 }
 void MaterialQuad(int material, const float *xy, float variation, float time)
@@ -332,11 +395,11 @@ void MaterialQuad(int material, const float *xy, float variation, float time)
 void Sprite(float x, float y, int palette, int facing, int action, float phase)
 {
     int frame = int(phase * 8) % 8;
-    int row = std::clamp(action, 0, 2) * 4 + std::clamp(facing, 0, 3);
+    int row = std::clamp(action, 0, 3) * 4 + std::clamp(facing, 0, 3);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, sprites[palette % 4]);
     glColor4f(1, 1, 1, 1);
-    quad(x - 25, y - 59, 50, 62, frame / 8.f, row / 12.f, 1 / 8.f, 1 / 12.f);
+    quad(x - 25, y - 59, 50, 62, frame / 8.f, row / 16.f, 1 / 8.f, 1 / 16.f);
     glDisable(GL_TEXTURE_2D);
 }
 void SoftShadow(float x, float y, float radius, float stretch, float opacity)
@@ -398,6 +461,35 @@ void SaveAtlas(const char *path)
     o.write((char *)&b, sizeof(b));
     o.write((char *)data.data(), data.size());
 }
+void BeginWater(float time)
+{
+    if (!effectsProgram)
+        return;
+    useProgram(effectsProgram);
+    uniform1i(getUniform(effectsProgram, "image"), 0);
+    uniform1i(getUniform(effectsProgram, "mode"), 0);
+    uniform1f(getUniform(effectsProgram, "clock"), time);
+}
+void EndEffect()
+{
+    if (effectsProgram)
+        useProgram(0);
+}
+bool EffectsAvailable()
+{
+    return effectsProgram != 0;
+}
+void Flame(float x, float y, float scale, float time)
+{
+    if (!effectsProgram)
+        return;
+    useProgram(effectsProgram);
+    uniform1i(getUniform(effectsProgram, "mode"), 1);
+    uniform1f(getUniform(effectsProgram, "clock"), time);
+    glColor4f(1, 1, 1, 1);
+    quad(x - 30 * scale, y - 66 * scale, 60 * scale, 72 * scale, 0, 0, 1, 1);
+    useProgram(0);
+}
 void Shutdown()
 {
     glDeleteTextures(4, materials);
@@ -406,6 +498,9 @@ void Shutdown()
     glDeleteTextures(1, &scene);
     if (program)
         deleteProgram(program);
+    if (effectsProgram)
+        deleteProgram(effectsProgram);
+    effectsProgram = 0;
     program = 0;
     atlasPreview.clear();
 }
