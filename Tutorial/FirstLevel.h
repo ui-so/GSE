@@ -1,14 +1,11 @@
 #pragma once
+#include "SceneGraph.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 namespace FirstLevel
 {
-struct Position
-{
-    float x = 0;
-    float y = 0;
-};
+using Position = Scene::Position;
 enum class Terrain : std::uint8_t
 {
     Grass,
@@ -31,7 +28,7 @@ enum class ItemKind
 };
 struct Enemy
 {
-    Position position;
+    Scene::ActorId actor = Scene::InvalidActor;
     int health = 28;
     int kind = 0;
     float attackCooldown = 0;
@@ -40,13 +37,13 @@ struct Enemy
 };
 struct Drop
 {
-    Position position;
+    Scene::ActorId actor = Scene::InvalidActor;
     ItemKind kind = ItemKind::Coin;
     bool collected = false;
 };
 struct Hero
 {
-    Position position;
+    Scene::ActorId actor = Scene::InvalidActor;
     Position facing{0.7071f, 0.7071f};
     int health = 100;
     int maximumHealth = 100;
@@ -70,6 +67,16 @@ class World
   public:
     static constexpr int MapSize = 64;
     static constexpr int Origin = MapSize / 2;
+    Scene::SceneGraph &GetScene()
+    {
+        return scene_;
+    }
+    const Scene::SceneGraph &GetScene() const
+    {
+        return scene_;
+    }
+    Position GetPosition(Scene::ActorId id) const;
+    bool IsActive(Scene::ActorId id) const;
     void Generate(std::uint32_t seed);
     void Update(float dt, Position input, bool sprint);
     bool Attack();
@@ -95,6 +102,11 @@ class World
     bool RunTests(std::string &report);
 
   private:
+    Scene::SceneGraph scene_;
+    Scene::ActorId scenery_ = 0, characters_ = 0, loot_ = 0;
+    Scene::ActorId SpawnActor(Scene::Kind kind, Position position, int index = -1);
+    void AddDrop(Position position, ItemKind kind);
+    void ClearEnemies();
     std::vector<Terrain> tiles_;
     std::vector<Enemy> enemies_;
     std::vector<Drop> drops_;
@@ -107,7 +119,7 @@ class World
     bool completed_ = false;
     void ConnectRegions();
     void RebuildDistanceField();
-    void Move(Position &position, Position movement);
+    void Move(Scene::ActorId actor, Position movement);
     void SetNotice(const std::wstring &message);
     bool HasLineOfSight(Position from, Position to) const;
 };

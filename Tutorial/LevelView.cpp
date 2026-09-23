@@ -4,6 +4,7 @@
 #include <gl/GL.h>
 #include "LevelView.h"
 #include "SceneModels.h"
+#include "SceneRender.h"
 #include "Visuals.h"
 #include <algorithm>
 #include <cmath>
@@ -104,56 +105,48 @@ void DrawTerrain(const FirstLevel::World &world)
     Visuals::EndEffect();
     glPopMatrix();
 }
-struct RenderObject
-{
-    FirstLevel::Position position;
-    int type;
-    int index;
-};
 void DrawScene(const FirstLevel::World &world)
 {
-    DrawTerrain(world);
-    std::vector<RenderObject> objects;
-    for (int y = 0; y < FirstLevel::World::MapSize; y++)
-        for (int x = 0; x < FirstLevel::World::MapSize; x++)
+    for (auto actor : world.GetScene().RenderQueue(Scene::Layer::Ground))
+        if (actor->GetKind() == Scene::Kind::Terrain)
         {
-            auto tile = world.Tile(x, y);
-            if (tile != FirstLevel::Terrain::Tree && tile != FirstLevel::Terrain::Rock)
-                continue;
-            objects.push_back(
-                {{float(x - FirstLevel::World::Origin) + .5f, float(y - FirstLevel::World::Origin) + .5f},
-                 tile == FirstLevel::Terrain::Tree ? 0 : 1,
-                 0});
+            auto position = actor->GetWorldPosition();
+            auto pivot = Project({0, 0});
+            glPushMatrix();
+            glTranslatef((position.x - position.y) * 31,
+                         (position.x + position.y) * 15.5f - actor->GetWorldElevation(), 0);
+            SceneRender::Push(*actor, pivot.x, pivot.y);
+            DrawTerrain(world);
+            SceneRender::Pop();
+            glPopMatrix();
         }
-    for (size_t i = 0; i < world.Enemies().size(); i++)
-        if (world.Enemies()[i].alive)
-            objects.push_back({world.Enemies()[i].position, 2, int(i)});
-    for (size_t i = 0; i < world.Drops().size(); i++)
-        if (!world.Drops()[i].collected)
-            objects.push_back({world.Drops()[i].position, 3, int(i)});
-    objects.push_back({{2.5f, -1.5f}, 4, 0});
-    objects.push_back({world.Player().position, 5, 0});
-    std::sort(objects.begin(), objects.end(), [](const RenderObject &a, const RenderObject &b) {
-        return a.position.x + a.position.y < b.position.x + b.position.y;
-    });
-    for (auto &object : objects)
+    auto objects = world.GetScene().RenderQueue(Scene::Layer::World);
+    for (auto actor : objects)
     {
-        Point p = Project(object.position);
+        Point p = Project(actor->GetWorldPosition(), actor->GetWorldElevation());
         if (p.x < -100 || p.x > frame.width + 100 || p.y < -60 || p.y > frame.height + 140)
             continue;
-        Visuals::SoftShadow(p.x + 10, p.y + 4, object.type == 0 ? 32.f : 24.f, .4f, .8f);
+        if (actor->GetKind() == Scene::Kind::Flame || actor->GetKind() == Scene::Kind::Attack)
+            continue;
+        SceneRender::Push(*actor, p.x, p.y);
+        Visuals::SoftShadow(p.x + 10, p.y + 4, actor->GetKind() == Scene::Kind::Tree ? 32.f : 24.f, .4f, .8f);
+        SceneRender::Pop();
     }
-    for (auto &object : objects)
+    for (auto actor : objects)
     {
-        Point p = Project(object.position);
+        Point p = Project(actor->GetWorldPosition(), actor->GetWorldElevation());
         if (p.x < -100 || p.x > frame.width + 100 || p.y < -60 || p.y > frame.height + 140)
             continue;
-        switch (object.type)
+        SceneRender::Push(*actor, p.x, p.y);
+        switch (actor->GetKind())
         {
-        case 0: {
+        default:
+            break;
+        case Scene::Kind::Tree: {
             bool occluding =
-                Distance(object.position, world.Player().position) < 2.3f &&
-                object.position.x + object.position.y > world.Player().position.x + world.Player().position.y;
+                Distance(actor->GetWorldPosition(), world.GetPosition(world.Player().actor)) < 2.3f &&
+                actor->GetWorldPosition().x + actor->GetWorldPosition().y >
+                    world.GetPosition(world.Player().actor).x + world.GetPosition(world.Player().actor).y;
             if (occluding)
             {
                 GLubyte mask[128];
@@ -166,14 +159,14 @@ void DrawScene(const FirstLevel::World &world)
             glDisable(GL_POLYGON_STIPPLE);
             break;
         }
-        case 1:
+        case Scene::Kind::Rock:
             SceneModels::Draw(SceneModels::Kind::Rock, p.x, p.y, .85f);
             break;
-        case 2: {
-            auto &enemy = world.Enemies()[object.index];
+        case Scene::Kind::Enemy: {
+            auto &enemy = world.Enemies()[actor->GetDataIndex()];
             SceneModels::Draw(enemy.kind == 0 ? SceneModels::Kind::Boar : SceneModels::Kind::Wraith, p.x, p.y,
                               1, frame.time, enemy.hitFlash > 0);
-            int maximum = object.index % 3 == 2 ? 36 : 28;
+            int maximum = actor->GetDataIndex() % 3 == 2 ? 36 : 28;
             Rectangle(p.x - 20, p.y - 72, 40, 5, {.09f, .05f, .045f});
             Rectangle(p.x - 20, p.y - 72, 40 * std::clamp(float(enemy.health) / maximum, 0.f, 1.f), 5,
                       {.70f, .26f, .19f});
@@ -181,20 +174,22 @@ void DrawScene(const FirstLevel::World &world)
                 Text(p.x - 15, p.y - 82, L"명중", Gold);
             break;
         }
-        case 3: {
-            auto &drop = world.Drops()[object.index];
+        case Scene::Kind::Loot: {
+            auto &drop = world.Drops()[actor->GetDataIndex()];
             SceneModels::Draw(drop.kind == FirstLevel::ItemKind::Potion ? SceneModels::Kind::Potion
                                                                         : SceneModels::Kind::Coin,
                               p.x, p.y - std::sin(frame.time * 3) * 2);
-            if (Distance(drop.position, world.Player().position) < 1.5f)
+            if (Distance(world.GetPosition(drop.actor), world.GetPosition(world.Player().actor)) < 1.5f)
                 Text(p.x - 28, p.y - 29, L"E 획득", Gold);
             break;
         }
-        case 4:
+        case Scene::Kind::Brazier:
             SceneModels::Draw(SceneModels::Kind::Brazier, p.x, p.y);
-            Visuals::Flame(p.x, p.y - 8, 1, frame.time);
             break;
-        case 5: {
+        case Scene::Kind::Flame:
+            Visuals::Flame(p.x, p.y, 1, frame.time);
+            break;
+        case Scene::Kind::Player: {
             const auto &hero = world.Player();
             float x = hero.facing.x - hero.facing.y, y = hero.facing.x + hero.facing.y;
             int facing = std::abs(x) > std::abs(y) ? (x < 0 ? 1 : 2) : (y < 0 ? 3 : 0);
@@ -204,6 +199,10 @@ void DrawScene(const FirstLevel::World &world)
                                 : frame.moving           ? 1
                                                          : 0,
                                 frame.time * (hero.attackAnimation > 0 ? 2 : 1.5f));
+            break;
+        }
+        case Scene::Kind::Attack: {
+            const auto &hero = world.Player();
             if (hero.attackAnimation > 0)
             {
                 float a = std::atan2(hero.facing.y, hero.facing.x);
@@ -213,9 +212,9 @@ void DrawScene(const FirstLevel::World &world)
                 for (int j = 0; j <= 20; j++)
                 {
                     float angle = a - 1.1f + j * .11f;
-                    Point edge = Project(
-                        {hero.position.x + std::cos(angle) * 1.6f, hero.position.y + std::sin(angle) * 1.6f},
-                        12);
+                    Point edge = Project({actor->GetWorldPosition().x + std::cos(angle) * 1.6f,
+                                          actor->GetWorldPosition().y + std::sin(angle) * 1.6f},
+                                         12 + actor->GetWorldElevation());
                     glVertex2f(edge.x, edge.y);
                 }
                 glEnd();
@@ -224,6 +223,7 @@ void DrawScene(const FirstLevel::World &world)
             break;
         }
         }
+        SceneRender::Pop();
     }
 }
 void Minimap(const FirstLevel::World &world)
@@ -250,11 +250,11 @@ void Minimap(const FirstLevel::World &world)
         }
     glEnd();
     for (auto &enemy : world.Enemies())
-        if (enemy.alive)
-            Rectangle(x + (enemy.position.x + 32) * 2 - 1, y + (enemy.position.y + 32) * 2 - 1, 3, 3,
-                      {.9f, .36f, .24f});
-    Rectangle(x + (world.Player().position.x + 32) * 2 - 2, y + (world.Player().position.y + 32) * 2 - 2, 4,
-              4, Mint);
+        if (enemy.alive && world.IsActive(enemy.actor))
+            Rectangle(x + (world.GetPosition(enemy.actor).x + 32) * 2 - 1,
+                      y + (world.GetPosition(enemy.actor).y + 32) * 2 - 1, 3, 3, {.9f, .36f, .24f});
+    Rectangle(x + (world.GetPosition(world.Player().actor).x + 32) * 2 - 2,
+              y + (world.GetPosition(world.Player().actor).y + 32) * 2 - 2, 4, 4, Mint);
     Text(x, y + 147, L"나", Mint);
     Text(x + 60, y + 147, L"적", {.9f, .36f, .24f});
 }
@@ -332,7 +332,17 @@ void Draw(const FirstLevel::World &world, const Frame &current, TextRenderer tex
     renderText = text;
     DrawScene(world);
     Visuals::PostProcess(frame.width, frame.height, frame.time, frame.postEnabled);
-    DrawHud(world);
+    for (auto actor : world.GetScene().RenderQueue(Scene::Layer::Interface))
+        if (actor->GetKind() == Scene::Kind::Hud)
+        {
+            auto p = actor->GetWorldPosition();
+            glPushMatrix();
+            glTranslatef(p.x, p.y - actor->GetWorldElevation(), 0);
+            SceneRender::Push(*actor, 0, 0, true);
+            DrawHud(world);
+            SceneRender::Pop();
+            glPopMatrix();
+        }
 }
 void Shutdown()
 {

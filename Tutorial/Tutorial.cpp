@@ -15,6 +15,7 @@
 #include "LevelView.h"
 #include "AssetCache.h"
 #include "SceneModels.h"
+#include "SceneRender.h"
 
 #undef NDEBUG
 #include <cassert>
@@ -49,7 +50,36 @@ const C ink{.76f, .8f, .75f}, gold{.88f, .70f, .39f}, teal{.36f, .83f, .79f};
 int width = 1280, height = 800, stage = 0;
 float elapsed = 0, worldTime = 0;
 bool keys[256]{}, paused = false, active = true, running = true, finished = false;
-V player{0, 2}, camera{0, 2};
+V camera{0, 2};
+Scene::SceneGraph tutorialScene;
+Scene::ActorId tutorialPlayer = 0, terrainActor = 0, particlesActor = 0, markerActor = 0, hudActor = 0;
+Scene::ActorId sceneryGroup = 0, characterGroup = 0;
+Scene::ActorId npcActors[16]{}, seedActor = 0, shrineActor = 0;
+V ActorPosition(Scene::ActorId id)
+{
+    auto actor = tutorialScene.Find(id);
+    auto p = actor ? actor->GetWorldPosition() : Scene::Position{};
+    return {p.x, p.y};
+}
+bool ActorVisible(Scene::ActorId id)
+{
+    auto actor = tutorialScene.Find(id);
+    return actor && actor->IsVisibleInHierarchy();
+}
+bool ActorActive(Scene::ActorId id)
+{
+    auto actor = tutorialScene.Find(id);
+    return actor && actor->IsActiveInHierarchy();
+}
+V PlayerPosition()
+{
+    return ActorPosition(tutorialPlayer);
+}
+void SetPlayerPosition(V p)
+{
+    if (auto actor = tutorialScene.Find(tutorialPlayer))
+        actor->SetWorldPosition({p.x, p.y});
+}
 constexpr int NPC_COUNT = 16;
 constexpr float MIN_X = -39.5f, MAX_X = 42.5f, MIN_Y = -39.5f, MAX_Y = 34.5f;
 int facing = 0;
@@ -68,12 +98,39 @@ int pending = -1;
 int talkingNpc = -1;
 struct Object
 {
-    V p;
+    Scene::ActorId actor;
     int type;
     float scale;
     int id;
+    Object(V position, int objectType, float objectScale, int dataIndex);
 };
 std::vector<Object> objects;
+Object::Object(V position, int objectType, float objectScale, int dataIndex)
+    : type(objectType), scale(objectScale), id(dataIndex)
+{
+    const Scene::Kind kinds[] = {Scene::Kind::Tree,   Scene::Kind::House,   Scene::Kind::Npc,
+                                 Scene::Kind::Well,   Scene::Kind::Shrine,  Scene::Kind::Seed,
+                                 Scene::Kind::Player, Scene::Kind::Brazier, Scene::Kind::Wildlife};
+    auto &node = tutorialScene.Create("TutorialObject", kinds[type],
+                                      type == 2 || type == 6 || type == 8 ? characterGroup : sceneryGroup);
+    actor = node.GetId();
+    node.SetWorldPosition({position.x, position.y});
+    node.SetDataIndex(int(objects.size()));
+    if (type == 2)
+        npcActors[id] = actor;
+    if (type == 4)
+        shrineActor = actor;
+    if (type == 5)
+        seedActor = actor;
+    if (type == 6)
+        tutorialPlayer = actor;
+    if (type == 7)
+    {
+        auto &flame = tutorialScene.Create("Flame", Scene::Kind::Flame, actor);
+        flame.SetDataIndex(int(objects.size()));
+        flame.SetLocalElevation(8 * objectScale);
+    }
+}
 struct NPC
 {
     V p;
@@ -230,16 +287,20 @@ bool blocked(V p)
         return true;
     for (auto &o : objects)
     {
-        if (o.type == 1 && fabsf(p.x - o.p.x) < 1.55f && fabsf(p.y - o.p.y) < 1.45f)
+        if (!ActorActive(o.actor))
+            continue;
+        if (o.type == 1 && fabsf(p.x - ActorPosition(o.actor).x) < 1.55f &&
+            fabsf(p.y - ActorPosition(o.actor).y) < 1.45f)
             return true;
-        if (o.type == 0 && length(p - o.p) < .45f)
+        if (o.type == 0 && length(p - ActorPosition(o.actor)) < .45f)
             return true;
     }
     return false;
 }
 struct Beast
 {
-    V p, home, velocity;
+    Scene::ActorId actor;
+    V home, velocity;
     int kind;
     float phase;
     bool fleeing = false;
@@ -258,45 +319,48 @@ void initWildlife()
                      : 18.f + float(i % 3) * 3};
         for (int k = 0; k < 50 && blocked(p); k++)
             p = p + V{.35f, .27f};
-        beasts.push_back({p, p, {0, 0}, i % 3, float(i), false});
+        objects.push_back({p, 8, 1, i});
+        beasts.push_back({objects.back().actor, p, {0, 0}, i % 3, float(i), false});
     }
 }
 void updateWildlife(float dt)
 {
+    tutorialScene.Update(dt);
     for (size_t i = 0; i < beasts.size(); i++)
     {
         auto &a = beasts[i];
+        if (!ActorActive(a.actor))
+            continue;
         a.phase += dt;
-        a.fleeing = length(a.p - player) < 3.6f;
+        a.fleeing = length(ActorPosition(a.actor) - PlayerPosition()) < 3.6f;
         V direction;
         if (a.fleeing)
-            direction = a.p - player;
-        else if (length(a.p - a.home) > 4)
-            direction = a.home - a.p;
+            direction = ActorPosition(a.actor) - PlayerPosition();
+        else if (length(ActorPosition(a.actor) - a.home) > 4)
+            direction = a.home - ActorPosition(a.actor);
         else
             direction = {sinf(a.phase * .33f + float(i)), cosf(a.phase * .27f + float(i) * 2)};
         float speed = a.fleeing ? (a.kind == 1 ? 3.7f : 2.7f) : (.35f + .13f * a.kind);
         if (length(direction) > .01f)
             direction = direction * (speed / length(direction));
         a.velocity = {0, 0};
-        V q = a.p + V{direction.x * dt, 0};
+        V q = ActorPosition(a.actor) + V{direction.x * dt, 0};
         if (!blocked(q))
         {
             a.velocity.x = direction.x;
-            a.p = q;
+            tutorialScene.Find(a.actor)->SetWorldPosition({q.x, q.y});
         }
-        q = a.p + V{0, direction.y * dt};
+        q = ActorPosition(a.actor) + V{0, direction.y * dt};
         if (!blocked(q))
         {
             a.velocity.y = direction.y;
-            a.p = q;
+            tutorialScene.Find(a.actor)->SetWorldPosition({q.x, q.y});
         }
     }
 }
 void fire(V p, float size)
 {
     SceneModels::Draw(SceneModels::Kind::Brazier, p.x, p.y, size);
-    Visuals::Flame(p.x, p.y - 8 * size, size, worldTime);
 }
 void animal(V p, const Beast &a)
 {
@@ -337,7 +401,22 @@ void animal(V p, const Beast &a)
 }
 void initWorld()
 {
+    tutorialScene.Clear();
     objects.clear();
+    sceneryGroup = tutorialScene.Create("Scenery", Scene::Kind::Group).GetId();
+    characterGroup = tutorialScene.Create("Characters", Scene::Kind::Group).GetId();
+    auto &terrain = tutorialScene.Create("TerrainAndShore", Scene::Kind::Terrain, sceneryGroup);
+    terrain.SetLayer(Scene::Layer::Ground);
+    terrainActor = terrain.GetId();
+    auto &particles = tutorialScene.Create("Atmosphere", Scene::Kind::Particles);
+    particles.SetLayer(Scene::Layer::Effects);
+    particlesActor = particles.GetId();
+    auto &marker = tutorialScene.Create("Objective", Scene::Kind::Marker);
+    marker.SetLayer(Scene::Layer::Effects);
+    markerActor = marker.GetId();
+    auto &hud = tutorialScene.Create("HUD", Scene::Kind::Hud);
+    hud.SetLayer(Scene::Layer::Interface);
+    hudActor = hud.GetId();
     V houses[] = {{-6, -4}, {0, -6}, {5, 5}, {-6, 7}, {7, 1}};
     for (int i = 0; i < 5; i++)
         objects.push_back({houses[i], 1, 1, i});
@@ -358,6 +437,7 @@ void initWorld()
     objects.push_back({{2, 0}, 7, 1, 0});
     objects.push_back({{-5, 5}, 7, .75f, 1});
     objects.push_back({{-20, 18}, 7, 1, 2});
+    objects.push_back({{0, 2}, 6, 1, 0});
     initWildlife();
 }
 GLuint treeList = 0;
@@ -453,7 +533,9 @@ void person(V p, C, bool hero = false, int id = 0)
 }
 V target()
 {
-    return stage == 0 || stage >= 3 ? npcs[0].p : stage == 1 ? seed : shrine;
+    return stage == 0 || stage >= 3 ? ActorPosition(npcActors[0])
+           : stage == 1             ? ActorPosition(seedActor)
+                                    : ActorPosition(shrineActor);
 }
 const wchar_t *objective()
 {
@@ -474,21 +556,27 @@ int nearest()
     int n = -1;
     for (int i = 0; i < NPC_COUNT; i++)
     {
-        float dist = length(player - npcs[i].p);
+        if (!ActorActive(npcActors[i]))
+            continue;
+        float dist = length(PlayerPosition() - ActorPosition(npcActors[i]));
         if (dist < d)
         {
             d = dist;
             n = i;
         }
     }
-    if (length(player - seed) < 1.8f && length(player - seed) < d)
+    if (ActorActive(seedActor) && length(PlayerPosition() - ActorPosition(seedActor)) < 1.8f &&
+        length(PlayerPosition() - ActorPosition(seedActor)) < d)
         n = NPC_COUNT;
-    if (length(player - shrine) < 1.8f && length(player - shrine) < d)
+    if (ActorActive(shrineActor) && length(PlayerPosition() - ActorPosition(shrineActor)) < 1.8f &&
+        length(PlayerPosition() - ActorPosition(shrineActor)) < d)
         n = NPC_COUNT + 1;
     return n;
 }
 void interact()
 {
+    if (!ActorActive(tutorialPlayer))
+        return;
     if (!dialog.empty())
     {
         dialog.clear();
@@ -557,14 +645,14 @@ void update(float dt)
             return;
         worldTime += dt;
         float x = float(keys['D'] - keys['A']), y = float(keys['S'] - keys['W']);
-        FirstLevel::Position previous = firstWorld.Player().position;
+        FirstLevel::Position previous = firstWorld.GetPosition(firstWorld.Player().actor);
         firstWorld.Update(dt, {(x + y) * .70710678f, (y - x) * .70710678f}, keys[VK_SHIFT]);
         if (keys[VK_SPACE])
             firstWorld.Attack();
-        auto position = firstWorld.Player().position;
+        auto position = firstWorld.GetPosition(firstWorld.Player().actor);
         moving = std::abs(position.x - previous.x) + std::abs(position.y - previous.y) > .0001f;
-        player = {position.x, position.y};
-        camera = camera + (player - camera) * std::min(1.f, dt * 5);
+        V tracked{position.x, position.y};
+        camera = camera + (tracked - camera) * std::min(1.f, dt * 5);
         return;
     }
     if (!active || paused)
@@ -578,124 +666,139 @@ void update(float dt)
     if (!dialog.empty())
         return;
     V d{float(keys['D'] - keys['A']), float(keys['S'] - keys['W'])};
-    if (length(d) > 0)
+    if (ActorActive(tutorialPlayer) && length(d) > 0)
     {
         moving = true;
         facing = fabsf(d.x) > fabsf(d.y) ? (d.x < 0 ? 1 : 2) : (d.y < 0 ? 3 : 0);
         d = d * (1 / length(d));
         V move{(d.x + d.y) * .70710678f, (d.y - d.x) * .70710678f};
         move = move * (dt * (keys[VK_SHIFT] ? 5.0f : 3.1f));
-        V q = player + V{move.x, 0};
+        V q = PlayerPosition() + V{move.x, 0};
         if (!blocked(q))
-            player = q;
-        q = player + V{0, move.y};
+            SetPlayerPosition(q);
+        q = PlayerPosition() + V{0, move.y};
         if (!blocked(q))
-            player = q;
+            SetPlayerPosition(q);
     }
-    camera = camera + (player - camera) * std::min(1.f, dt * 5);
+    camera = camera + (PlayerPosition() - camera) * std::min(1.f, dt * 5);
 }
 GLuint terrainList = 0;
 V terrainOrigin{0, 0};
 void drawWorld()
 {
-    // Static terrain batches retain world-space geometry across frames and window resizes.
-    if (!terrainList)
+    if (ActorVisible(terrainActor))
     {
-        terrainList = glGenLists(2);
-        V oldCamera = camera;
-        camera = {0, 0};
-        terrainOrigin = {width * .5f, height * .53f};
-        for (int pass = 0; pass < 2; pass++)
+        // Static terrain batches retain world-space geometry across frames and window resizes.
+        if (!terrainList)
         {
-            glNewList(terrainList + pass, GL_COMPILE);
-            for (int x = -41; x < 44; x++)
-                for (int y = -41; y < 36; y++)
-                {
-                    bool water = lake({x + .5f, y + .5f});
-                    if (water != (pass == 1))
-                        continue;
-                    bool village = abs(x) < 8 && abs(y) < 8;
-                    bool road = abs(x) < 2 || (x >= 0 && x < 14 && abs(y + 5) < 2) || abs(y - 18) < 2 ||
-                                abs(x + 20) < 2;
-                    int material = water ? 3 : village ? 1 : road ? 2 : 0;
-                    V a = project({float(x), float(y)}), b = project({float(x + 1), float(y)}),
-                      c = project({float(x + 1), float(y + 1)}), d = project({float(x), float(y + 1)});
-                    float xy[] = {a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y};
-                    Visuals::MaterialQuad(material, xy, .92f + hash(x / 3, y / 3) * .10f, 0);
-                }
-            glEndList();
+            terrainList = glGenLists(2);
+            V oldCamera = camera;
+            camera = {0, 0};
+            terrainOrigin = {width * .5f, height * .53f};
+            for (int pass = 0; pass < 2; pass++)
+            {
+                glNewList(terrainList + pass, GL_COMPILE);
+                for (int x = -41; x < 44; x++)
+                    for (int y = -41; y < 36; y++)
+                    {
+                        bool water = lake({x + .5f, y + .5f});
+                        if (water != (pass == 1))
+                            continue;
+                        bool village = abs(x) < 8 && abs(y) < 8;
+                        bool road = abs(x) < 2 || (x >= 0 && x < 14 && abs(y + 5) < 2) || abs(y - 18) < 2 ||
+                                    abs(x + 20) < 2;
+                        int material = water ? 3 : village ? 1 : road ? 2 : 0;
+                        V a = project({float(x), float(y)}), b = project({float(x + 1), float(y)}),
+                          c = project({float(x + 1), float(y + 1)}), d = project({float(x), float(y + 1)});
+                        float xy[] = {a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y};
+                        Visuals::MaterialQuad(material, xy, .92f + hash(x / 3, y / 3) * .10f, 0);
+                    }
+                glEndList();
+            }
+            camera = oldCamera;
         }
-        camera = oldCamera;
-    }
-    glPushMatrix();
-    glTranslatef(width * .5f - terrainOrigin.x - (camera.x - camera.y) * 31,
-                 height * .53f - terrainOrigin.y - (camera.x + camera.y) * 15.5f, 0);
-    glCallList(terrainList);
-    glMatrixMode(GL_TEXTURE);
-    glPushMatrix();
-    glTranslatef(worldTime * .024f, worldTime * .012f, 0);
-    glMatrixMode(GL_MODELVIEW);
-    Visuals::BeginWater(worldTime);
-    glCallList(terrainList + 1);
-    Visuals::EndEffect();
-    glMatrixMode(GL_TEXTURE);
-    glPopMatrix();
-    glMatrixMode(GL_MODELVIEW);
-    glPopMatrix();
-    for (int i = 0; i < 90; i++)
-    {
-        float a = i * 6.2831853f / 90;
-        V q{16 + cosf(a) * 5.65f, -7 + sinf(a) * 8.15f};
-        V p = project(q);
-        ellipse(p, 6 + hash(i, 4) * 5, 3, {.37f, .40f, .29f});
-        if (i % 3 == 0)
+        auto &terrain = *tutorialScene.Find(terrainActor);
+        auto terrainPosition = terrain.GetWorldPosition();
+        V pivot = project({0, 0});
+        glPushMatrix();
+        glTranslatef((terrainPosition.x - terrainPosition.y) * 31,
+                     (terrainPosition.x + terrainPosition.y) * 15.5f - terrain.GetWorldElevation(), 0);
+        SceneRender::Push(terrain, pivot.x, pivot.y);
+        glPushMatrix();
+        glTranslatef(width * .5f - terrainOrigin.x - (camera.x - camera.y) * 31,
+                     height * .53f - terrainOrigin.y - (camera.x + camera.y) * 15.5f, 0);
+        glCallList(terrainList);
+        glMatrixMode(GL_TEXTURE);
+        glPushMatrix();
+        glTranslatef(worldTime * .024f, worldTime * .012f, 0);
+        glMatrixMode(GL_MODELVIEW);
+        Visuals::BeginWater(worldTime);
+        glCallList(terrainList + 1);
+        Visuals::EndEffect();
+        glMatrixMode(GL_TEXTURE);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+        glPopMatrix();
+        for (int i = 0; i < 90; i++)
         {
-            for (int j = 0; j < 3; j++)
-                line(p + V{float(j * 3), 0},
-                     p + V{float(j * 3) + sinf(worldTime + i) * 2, -14 - float(j % 2) * 8},
-                     {.43f, .43f, .22f}, 2);
-        }
-    }
-    for (int i = 0; i < 5; i++)
-    {
-        V p = project({15.f + float(i % 2) * 2, -10.f + float(i) * 2});
-        float t = fmodf(worldTime * .15f + i * .2f, 1);
-        color({.46f, .72f, .73f, (1 - t) * .14f});
-        glBegin(GL_LINE_LOOP);
-        for (int j = 0; j < 48; j++)
-        {
-            float a = j * 6.2831853f / 48;
-            glVertex2f(p.x + cosf(a) * (10 + t * 50), p.y + sinf(a) * (5 + t * 20));
-        }
-        glEnd();
-    }
-    for (int i = 0; i < 32; i++)
-    {
-        float x = 12 + hash(i, 2) * 8, y = -13 + hash(i, 3) * 12;
-        if (lake({x, y}))
-        {
-            V p = project({x, y});
-            float w = 9 + sinf(worldTime + i) * 5;
-            line(p + V{-w, 0}, p + V{w, 0}, {.37f, .63f, .62f, .18f});
-        }
-    }
-    // Village cobbles and lantern pools.
-    for (int i = 0; i < 120; i++)
-    {
-        V q{hash(i, 9) * 12 - 6, hash(i, 8) * 12 - 6};
-        if (!blocked(q))
-        {
+            float a = i * 6.2831853f / 90;
+            V q{16 + cosf(a) * 5.65f, -7 + sinf(a) * 8.15f};
             V p = project(q);
-            ellipse(p, 4 + hash(i, 3) * 3, 2, {.47f, .46f, .36f, .13f});
+            ellipse(p, 6 + hash(i, 4) * 5, 3, {.37f, .40f, .29f});
+            if (i % 3 == 0)
+            {
+                for (int j = 0; j < 3; j++)
+                    line(p + V{float(j * 3), 0},
+                         p + V{float(j * 3) + sinf(worldTime + i) * 2, -14 - float(j % 2) * 8},
+                         {.43f, .43f, .22f}, 2);
+            }
         }
+        for (int i = 0; i < 5; i++)
+        {
+            V p = project({15.f + float(i % 2) * 2, -10.f + float(i) * 2});
+            float t = fmodf(worldTime * .15f + i * .2f, 1);
+            color({.46f, .72f, .73f, (1 - t) * .14f});
+            glBegin(GL_LINE_LOOP);
+            for (int j = 0; j < 48; j++)
+            {
+                float a = j * 6.2831853f / 48;
+                glVertex2f(p.x + cosf(a) * (10 + t * 50), p.y + sinf(a) * (5 + t * 20));
+            }
+            glEnd();
+        }
+        for (int i = 0; i < 32; i++)
+        {
+            float x = 12 + hash(i, 2) * 8, y = -13 + hash(i, 3) * 12;
+            if (lake({x, y}))
+            {
+                V p = project({x, y});
+                float w = 9 + sinf(worldTime + i) * 5;
+                line(p + V{-w, 0}, p + V{w, 0}, {.37f, .63f, .62f, .18f});
+            }
+        }
+        // Village cobbles and lantern pools.
+        for (int i = 0; i < 120; i++)
+        {
+            V q{hash(i, 9) * 12 - 6, hash(i, 8) * 12 - 6};
+            if (!blocked(q))
+            {
+                V p = project(q);
+                ellipse(p, 4 + hash(i, 3) * 3, 2, {.47f, .46f, .36f, .13f});
+            }
+        }
+        SceneRender::Pop();
+        glPopMatrix();
     }
     for (auto &o : objects)
     {
+        if (!ActorActive(o.actor) || !tutorialScene.Find(o.actor)->IsVisibleInHierarchy())
+            continue;
         if (o.type != 0 && o.type != 1)
             continue;
-        V p = project(o.p);
+        V p = project(ActorPosition(o.actor));
         if (p.x < -200 || p.x > width + 200 || p.y < -150 || p.y > height + 100)
             continue;
+        SceneRender::Push(*tutorialScene.Find(o.actor), p.x, p.y);
         float r = o.type == 1 ? 70.f : 28.f * o.scale;
         // Ground-projected caster silhouettes with layered penumbra, all before geometry.
         for (int layer = 3; layer >= 0; layer--)
@@ -708,23 +811,28 @@ void drawWorld()
         }
         Visuals::SoftShadow(p.x + 25, p.y + 14, r, .48f, .7f);
         Visuals::SoftShadow(p.x, p.y, r * .6f, .35f, .8f);
+        SceneRender::Pop();
     }
-    std::vector<Object> sorted = objects;
-    for (size_t i = 0; i < beasts.size(); i++)
-        sorted.push_back({beasts[i].p, 8, 1, int(i)});
-    sorted.push_back({player, 6, 1, 0});
-    std::stable_sort(sorted.begin(), sorted.end(),
-                     [](Object a, Object b) { return a.p.x + a.p.y < b.p.x + b.p.y; });
-    for (auto &o : sorted)
+    for (auto actor : tutorialScene.RenderQueue(Scene::Layer::World))
     {
-        V p = project(o.p);
+        const auto &o = objects.at(actor->GetDataIndex());
+        V p = project(ActorPosition(actor->GetId()), actor->GetWorldElevation());
+        if (actor->GetKind() == Scene::Kind::Flame)
+        {
+            SceneRender::Push(*actor, p.x, p.y);
+            Visuals::Flame(p.x, p.y, o.scale, worldTime);
+            SceneRender::Pop();
+            continue;
+        }
         if (p.x < -150 || p.x > width + 150 || p.y < -40 || p.y > height + 200)
             continue;
+        SceneRender::Push(*actor, p.x, p.y);
         switch (o.type)
         {
         case 0: {
-            float a = length(o.p - player);
-            if (a < 3 && o.p.x + o.p.y > player.x + player.y)
+            float a = length(ActorPosition(o.actor) - PlayerPosition());
+            if (a < 3 &&
+                ActorPosition(o.actor).x + ActorPosition(o.actor).y > PlayerPosition().x + PlayerPosition().y)
             {
                 glEnable(GL_POLYGON_STIPPLE);
                 GLubyte mask[128];
@@ -776,22 +884,43 @@ void drawWorld()
             person(p, {.3f, .5f, .6f}, true);
             break;
         }
+        SceneRender::Pop();
     }
-    for (int i = 0; i < 24; i++)
+    if (ActorVisible(particlesActor))
     {
-        V q{hash(i, 19) * 34 - 13, hash(i, 21) * 30 - 18};
-        V p = project(q, 15 + sinf(worldTime + i) * 8);
-        ellipse(p, 1.5f, 1.5f, {.75f, .8f, .5f, .3f + .25f * sinf(worldTime + i)});
+        auto &particles = *tutorialScene.Find(particlesActor);
+        auto position = particles.GetWorldPosition();
+        V pivot = project({0, 0});
+        glPushMatrix();
+        glTranslatef((position.x - position.y) * 31,
+                     (position.x + position.y) * 15.5f - particles.GetWorldElevation(), 0);
+        SceneRender::Push(particles, pivot.x, pivot.y);
+        for (int i = 0; i < 24; i++)
+        {
+            V q{hash(i, 19) * 34 - 13, hash(i, 21) * 30 - 18};
+            V p = project(q, 15 + sinf(worldTime + i) * 8);
+            ellipse(p, 1.5f, 1.5f, {.75f, .8f, .5f, .3f + .25f * sinf(worldTime + i)});
+        }
+        // Thin drifting mist preserves scene readability.
+        for (int i = 0; i < 5; i++)
+            ellipse({fmodf(worldTime * 8 + i * 330, width + 500.f) - 250, height * .55f + i * 65.f}, 280, 23,
+                    {.49f, .64f, .59f, .022f});
+        SceneRender::Pop();
+        glPopMatrix();
     }
-    // Thin drifting mist preserves scene readability.
-    for (int i = 0; i < 5; i++)
-        ellipse({fmodf(worldTime * 8 + i * 330, width + 500.f) - 250, height * .55f + i * 65.f}, 280, 23,
-                {.49f, .64f, .59f, .022f});
-    if (stage < 4)
+    if (stage < 4 && ActorVisible(markerActor))
     {
-        V p = project(target(), 55);
+        auto targetActor = stage == 0 || stage >= 3 ? npcActors[0] : stage == 1 ? seedActor : shrineActor;
+        if (tutorialScene.Find(markerActor)->GetParent() != targetActor && tutorialScene.Find(targetActor))
+        {
+            tutorialScene.Reparent(markerActor, targetActor, false);
+            tutorialScene.Find(markerActor)->SetLocalPosition({0, 0});
+        }
+        V p = project(ActorPosition(markerActor), 55 + tutorialScene.Find(markerActor)->GetWorldElevation());
+        SceneRender::Push(*tutorialScene.Find(markerActor), p.x, p.y);
         float b = sinf(worldTime * 3) * 3;
         poly({{p.x - 6, p.y + b}, {p.x + 6, p.y + b}, {p.x, p.y + 8 + b}}, gold);
+        SceneRender::Pop();
     }
 }
 void minimap()
@@ -802,14 +931,14 @@ void minimap()
     auto m = [&](V p) { return V{x + 90 + p.x * 1.8f, y + 90 + p.y * 1.45f}; };
     ellipse(m({16, -7}), 10, 12, {.15f, .35f, .38f});
     for (auto &o : objects)
-        if (o.type == 1)
+        if (o.type == 1 && ActorVisible(o.actor))
         {
-            V p = m(o.p);
+            V p = m(ActorPosition(o.actor));
             rect(p.x - 3, p.y - 3, 6, 6, {.55f, .48f, .34f});
         }
     if (stage < 4)
         ellipse(m(target()), 3, 3, gold);
-    ellipse(m(player), 3, 3, teal);
+    ellipse(m(PlayerPosition()), 3, 3, teal);
     text(x + 11, y + 154, L"● 나   ·   ◆ 목적지");
 }
 void draw()
@@ -833,6 +962,12 @@ void draw()
     }
     drawWorld();
     Visuals::PostProcess(width, height, worldTime, postEnabled);
+    if (!ActorVisible(hudActor))
+        return;
+    auto hudPosition = tutorialScene.Find(hudActor)->GetWorldPosition();
+    glPushMatrix();
+    glTranslatef(hudPosition.x, hudPosition.y, 0);
+    SceneRender::Push(*tutorialScene.Find(hudActor), 0, 0, true);
     rect(0, 0, float(width), 6, {.67f, .51f, .28f});
     rect(24, 26, 480, 111, {.025f, .045f, .043f, .92f});
     text(43, 54, L"잿빛 여울  ·  남겨진 빛", gold);
@@ -847,13 +982,13 @@ void draw()
          L"W A S D  이동     Shift  빠르게 걷기     E  대화 / 조사     Esc  일시정지   F2  후처리", ink);
     if (stage < 4)
     {
-        V d = target() - player;
+        V d = target() - PlayerPosition();
         float dist = length(d);
         text(42, 164, std::wstring(L"◆ ") + objective() + L"  ·  " + std::to_wstring(int(dist)) + L" m",
              gold);
     }
     for (auto &a : beasts)
-        if (length(a.p - player) < 4 && dialog.empty() && !paused)
+        if (length(ActorPosition(a.actor) - PlayerPosition()) < 4 && dialog.empty() && !paused)
         {
             text(42, 192,
                  std::wstring(a.kind == 0   ? L"사슴"
@@ -865,7 +1000,7 @@ void draw()
         }
     if (nearest() >= 0 && dialog.empty() && !paused)
     {
-        V p = project(player, 64);
+        V p = project(PlayerPosition(), 64);
         rect(p.x - 89, p.y - 24, 178, 31, {.025f, .045f, .043f, .95f});
         text(p.x - 76, p.y - 3, L"[ E ] 대화 / 조사", gold);
     }
@@ -891,14 +1026,15 @@ void draw()
         text(width * .5f - 85, height * .5f - 30, L"잠시 쉬어가기", gold);
         text(width * .5f - 160, height * .5f + 7, L"Esc 계속   ·   R 다시 시작   ·   Q 종료");
     }
+    SceneRender::Pop();
+    glPopMatrix();
 }
 void reset()
 {
     if (firstLevelMode)
     {
         firstWorld.Generate(static_cast<std::uint32_t>(GetTickCount64()));
-        player = {.5f, .5f};
-        camera = player;
+        camera = {.5f, .5f};
         paused = false;
         moving = false;
         std::fill(keys, keys + 256, false);
@@ -910,8 +1046,8 @@ void reset()
     facing = 0;
     stage = 0;
     elapsed = 0;
-    player = {0, 2};
-    camera = player;
+    SetPlayerPosition({0, 2});
+    camera = PlayerPosition();
     finished = false;
     paused = false;
     dialog.clear();
@@ -974,9 +1110,8 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             std::fill(keys, keys + 256, false);
             if (firstLevelMode)
             {
-                auto p = firstWorld.Player().position;
-                player = {p.x, p.y};
-                camera = player;
+                auto p = firstWorld.GetPosition(firstWorld.Player().actor);
+                camera = {p.x, p.y};
             }
             else
                 reset();
@@ -996,8 +1131,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             else if (w == 'R' && firstWorld.IsDead())
             {
                 firstWorld.Respawn();
-                player = {.5f, .5f};
-                camera = player;
+                camera = {.5f, .5f};
             }
             else if (w == 'R' && paused)
                 reset();
@@ -1074,24 +1208,38 @@ int tests()
     assert(beasts.size() == 15);
     for (int i = 0; i < NPC_COUNT; i++)
     {
-        assert(!blocked(npcs[i].p));
-        assert(routeDistance(player, npcs[i].p) >= 0);
-        player = npcs[i].p;
+        assert(!blocked(ActorPosition(npcActors[i])));
+        assert(routeDistance(PlayerPosition(), ActorPosition(npcActors[i])) >= 0);
+        SetPlayerPosition(ActorPosition(npcActors[i]));
         assert(nearest() == i);
     }
     reset();
-    V first = beasts[0].p;
+    assert(tutorialScene.IsValid());
+    auto count = tutorialScene.Size();
+    auto &group = *tutorialScene.Find(characterGroup);
+    V beforeGroup = PlayerPosition();
+    group.SetLocalPosition({1, 2});
+    assert(length(PlayerPosition() - beforeGroup - V{1, 2}) < .001f);
+    group.SetLocalPosition({0, 0});
+    group.SetEnabled(false);
+    V beforeDisabled = ActorPosition(beasts[0].actor);
+    updateWildlife(.1f);
+    assert(length(ActorPosition(beasts[0].actor) - beforeDisabled) < .001f);
+    group.SetEnabled(true);
+    assert(tutorialScene.Size() == count);
+    V first = ActorPosition(beasts[0].actor);
     for (int i = 0; i < 300; i++)
         updateWildlife(.02f);
-    assert(length(beasts[0].p - first) > .01f);
+    assert(length(ActorPosition(beasts[0].actor) - first) > .01f);
     for (auto &a : beasts)
-        assert(!blocked(a.p));
-    player = beasts[0].p + V{1, 0};
+        assert(!blocked(ActorPosition(a.actor)));
+    SetPlayerPosition(ActorPosition(beasts[0].actor) + V{1, 0});
     updateWildlife(.02f);
     assert(beasts[0].fleeing);
     reset();
     float route = 0;
-    V stops[] = {player, npcs[0].p, seed, shrine, npcs[0].p};
+    V stops[] = {PlayerPosition(), ActorPosition(npcActors[0]), ActorPosition(seedActor),
+                 ActorPosition(shrineActor), ActorPosition(npcActors[0])};
     for (int i = 0; i < 4; i++)
     {
         float d = routeDistance(stops[i], stops[i + 1]);
@@ -1103,28 +1251,28 @@ int tests()
     report << "Collision-aware route distance: " << route
            << " m\nWalking plus 180-second reading/exploration allowance: " << route / 3.1f + 180
            << " seconds\n";
-    assert(!blocked(shrine));
-    assert(!blocked(seed));
-    assert(!blocked(player));
+    assert(!blocked(ActorPosition(shrineActor)));
+    assert(!blocked(ActorPosition(seedActor)));
+    assert(!blocked(PlayerPosition()));
     assert(blocked({16, -7}));
-    player = npcs[0].p;
+    SetPlayerPosition(ActorPosition(npcActors[0]));
     interact();
     assert(stage == 0 && !dialog.empty());
     interact();
     assert(stage == 1);
-    player = shrine;
+    SetPlayerPosition(ActorPosition(shrineActor));
     interact();
     interact();
     assert(stage == 1);
-    player = seed;
+    SetPlayerPosition(ActorPosition(seedActor));
     interact();
     interact();
     assert(stage == 2);
-    player = shrine;
+    SetPlayerPosition(ActorPosition(shrineActor));
     interact();
     interact();
     assert(stage == 3);
-    player = npcs[0].p;
+    SetPlayerPosition(ActorPosition(npcActors[0]));
     interact();
     interact();
     assert(stage == 4 && finished);
@@ -1136,24 +1284,24 @@ int tests()
     assert(elapsed == e);
     paused = false;
     keys['W'] = true;
-    V before = player;
+    V before = PlayerPosition();
     update(.1f);
-    assert(player.x < before.x && player.y < before.y);
+    assert(PlayerPosition().x < before.x && PlayerPosition().y < before.y);
     keys['W'] = false;
     reset();
     keys['W'] = true;
     update(.1f);
-    float straight = length(player - V{0, 2});
+    float straight = length(PlayerPosition() - V{0, 2});
     reset();
     keys['W'] = keys['D'] = true;
     update(.1f);
-    assert(fabsf(length(player - V{0, 2}) - straight) < .001f);
+    assert(fabsf(length(PlayerPosition() - V{0, 2}) - straight) < .001f);
     reset();
     openDialog(L"test", L"test");
-    V stationary = player;
+    V stationary = PlayerPosition();
     keys['W'] = true;
     update(.1f);
-    assert(length(player - stationary) < .001f && elapsed > .09f);
+    assert(length(PlayerPosition() - stationary) < .001f && elapsed > .09f);
     reset();
     report << "PASS: 16 NPC interactions/reachability, exact 4x playable area, 15 wildlife spawns, "
               "movement/collision/flee behavior.\n";
@@ -1170,6 +1318,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         FirstLevel::World tested;
         bool okay = tested.RunTests(report);
         okay = AssetCache::RunTests(report) && okay;
+        okay = Scene::SceneGraph::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
@@ -1213,8 +1362,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     firstWorld.Generate(levelShot ? 42u : static_cast<std::uint32_t>(GetTickCount64()));
     if (firstLevelMode)
     {
-        player = {.5f, .5f};
-        camera = player;
+        camera = {.5f, .5f};
     }
     ShowWindow(windowHandle, shot ? SW_HIDE : SW_SHOW);
     if (wcsstr(command, L"--no-post"))
@@ -1282,19 +1430,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
             draw();
             capture("tutorial-walk-b.bmp");
             moving = false;
-            player = {-11, -10};
-            camera = player;
+            SetPlayerPosition({-11, -10});
+            camera = PlayerPosition();
             worldTime = 2;
             draw();
             capture("tutorial-wildlife.bmp");
-            player = shrine + V{-1, 0};
+            SetPlayerPosition(ActorPosition(shrineActor) + V{-1, 0});
             camera = {10, -5};
             stage = 3;
             draw();
             capture("tutorial-lake.bmp");
             reset();
-            player = npcs[0].p + V{0, 1};
-            camera = player;
+            SetPlayerPosition(ActorPosition(npcActors[0]) + V{0, 1});
+            camera = PlayerPosition();
             interact();
             draw();
             capture("tutorial-dialog.bmp");
