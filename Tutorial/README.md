@@ -63,3 +63,21 @@ Tutorial/build.cmd를 실행하면 Tutorial/build/AshenShore.exe를 생성한다
 전투, 저장, 인벤토리 UI, 음향과 청크 스트리밍은 이번 변경 범위에 포함하지 않는다.
 
 최종 성능 참고: 이 장치의 Intel Iris Plus에서 1280×800, 준비 20프레임 후 120프레임의 평균 그리기·GPU 완료 시간은 약 25.5ms였다. 측정 당시 시스템 상태의 영향을 받으며 실제 표시 FPS 보장은 아니다. 후처리는 분기·반복문 대신 명시적인 4방향 밝기 샘플을 사용하고, 정적 지형과 나무 형상은 재사용한다. F2로 후처리 비용과 화면 차이를 비교할 수 있다.
+
+
+## 프레임별 Draw Call 계측
+
+일반 실행 시 콘솔을 연결하거나 생성하고 매 draw() 완료마다 한 줄 출력한다. 첫 레벨, F1 튜토리얼, UI, 그림자, 셰이더 효과와 후처리를 포함한다.
+
+`[Frame 1] draw_calls=... list_calls=... primitive_batches=...`
+
+- draw_calls: 직접 실행하는 glBegin/glEnd 배치와 glCallList 호출의 합계. 표시 목록 생성(GL_COMPILE)은 제외한다.
+- list_calls: draw_calls 중 glCallList 횟수. 글꼴 비트맵 목록도 포함한다.
+- primitive_batches: 표시 목록 안의 도형 배치까지 펼친 합계. 목록을 재사용해도 포함하며, 글꼴 목록은 글자별 비트맵 명령 하나로 계산한다.
+- 드라이버 내부 GPU 명령 수가 아닌 애플리케이션 OpenGL 명령 계측이다. glClear, 상태 변경, 텍스처 복사, SwapBuffers는 제외한다.
+
+DrawStats 래퍼를 통해 새 그리기 호출을 추가한다. 현재 렌더 경로는 immediate mode와 display list를 사용하며 향후 glDrawArrays/Elements 도입 시 계측도 연결해야 한다. 표시 목록에는 현재 중첩 목록이 없다.
+
+캡처·벤치마크 실행은 콘솔 창을 자동 생성하지 않는다. stdout을 리다이렉션하면 같은 프레임 로그를 파일로 저장할 수 있다. 매 프레임 콘솔 출력은 성능 측정에 영향을 줄 수 있다.
+
+SceneGraph의 목적에는 클리핑과 최적화가 포함된다. 이번 변경은 계측 추가이며 공간 분할이나 계층적 프러스텀 컬링을 새로 구현한 것은 아니다.

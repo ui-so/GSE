@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#include "DrawStats.h"
 #include "LevelView.h"
 #include "SceneModels.h"
 #include "SceneRender.h"
@@ -30,7 +31,7 @@ constexpr Color Ink{.79f, .83f, .77f}, Gold{.9f, .73f, .40f}, Mint{.40f, .78f, .
 void Rectangle(float x, float y, float w, float h, Color c)
 {
     glColor4f(c.r, c.g, c.b, c.a);
-    glBegin(GL_QUADS);
+    DrawStats::Begin(GL_QUADS);
     glVertex2f(x, y);
     glVertex2f(x + w, y);
     glVertex2f(x + w, y + h);
@@ -50,7 +51,7 @@ void Line(Point a, Point b, Color c, float width = 1)
 {
     glColor4f(c.r, c.g, c.b, c.a);
     glLineWidth(width);
-    glBegin(GL_LINES);
+    DrawStats::Begin(GL_LINES);
     glVertex2f(a.x, a.y);
     glVertex2f(b.x, b.y);
     glEnd();
@@ -73,7 +74,7 @@ void DrawTerrain(const FirstLevel::World &world)
         terrainOrigin = {frame.width * .5f, frame.height * .53f};
         for (int pass = 0; pass < 2; pass++)
         {
-            glNewList(terrainLists + pass, GL_COMPILE);
+            DrawStats::NewList(terrainLists + pass, GL_COMPILE);
             for (int y = 0; y < FirstLevel::World::MapSize; y++)
                 for (int x = 0; x < FirstLevel::World::MapSize; x++)
                 {
@@ -92,16 +93,16 @@ void DrawTerrain(const FirstLevel::World &world)
                                                                         : 0;
                     Visuals::MaterialQuad(material, xy, .92f, 0);
                 }
-            glEndList();
+            DrawStats::EndList();
         }
         frame = saved;
     }
     glPushMatrix();
     glTranslatef(frame.width * .5f - terrainOrigin.x - (frame.cameraX - frame.cameraY) * 31,
                  frame.height * .53f - terrainOrigin.y - (frame.cameraX + frame.cameraY) * 15.5f, 0);
-    glCallList(terrainLists);
+    DrawStats::CallList(terrainLists);
     Visuals::BeginWater(frame.time);
-    glCallList(terrainLists + 1);
+    DrawStats::CallList(terrainLists + 1);
     Visuals::EndEffect();
     glPopMatrix();
 }
@@ -208,7 +209,7 @@ void DrawScene(const FirstLevel::World &world)
                 float a = std::atan2(hero.facing.y, hero.facing.x);
                 glColor4f(.91f, .81f, .58f, hero.attackAnimation / .28f);
                 glLineWidth(3);
-                glBegin(GL_LINE_STRIP);
+                DrawStats::Begin(GL_LINE_STRIP);
                 for (int j = 0; j <= 20; j++)
                 {
                     float angle = a - 1.1f + j * .11f;
@@ -231,7 +232,7 @@ void Minimap(const FirstLevel::World &world)
     float x = frame.width - 178.f, y = 222;
     Rectangle(x - 10, y - 27, 156, 183, {.025f, .05f, .045f, .93f});
     Text(x, y - 8, L"사냥터 지도", Gold);
-    glBegin(GL_QUADS);
+    DrawStats::Begin(GL_QUADS);
     for (int cy = 0; cy < 64; cy++)
         for (int cx = 0; cx < 64; cx++)
         {

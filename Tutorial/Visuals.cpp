@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#include "DrawStats.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -65,7 +66,7 @@ GLuint upload(int w, int h, const std::vector<unsigned char> &pixels, bool repea
 }
 void quad(float x, float y, float w, float h, float u, float v, float uw, float vh)
 {
-    glBegin(GL_QUADS);
+    DrawStats::Begin(GL_QUADS);
     glTexCoord2f(u, v);
     glVertex2f(x, y);
     glTexCoord2f(u + uw, v);
@@ -383,7 +384,7 @@ void MaterialQuad(int material, const float *xy, float variation, float time)
     glBindTexture(GL_TEXTURE_2D, materials[material]);
     glColor4f(variation, variation, variation, 1);
     float t = material == 3 ? time * .024f : 0;
-    glBegin(GL_QUADS);
+    DrawStats::Begin(GL_QUADS);
     for (int i = 0; i < 4; i++)
     {
         glTexCoord2f((i == 1 || i == 2 ? 1.f : 0) + t, (i >= 2 ? 1.f : 0) + t * .5f);

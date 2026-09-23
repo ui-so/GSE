@@ -6,6 +6,7 @@
 #include <fstream>
 #include <windows.h>
 #include <gl/GL.h>
+#include "DrawStats.h"
 #include <map>
 #include <queue>
 #include <string>
@@ -190,7 +191,7 @@ void color(C c)
 void poly(std::initializer_list<V> vs, C c)
 {
     color(c);
-    glBegin(GL_POLYGON);
+    DrawStats::Begin(GL_POLYGON);
     for (auto v : vs)
         glVertex2f(v.x, v.y);
     glEnd();
@@ -202,7 +203,7 @@ void rect(float x, float y, float w, float h, C c)
 void ellipse(V p, float rx, float ry, C c)
 {
     color(c);
-    glBegin(GL_TRIANGLE_FAN);
+    DrawStats::Begin(GL_TRIANGLE_FAN);
     glVertex2f(p.x, p.y);
     for (int i = 0; i <= 48; i++)
     {
@@ -215,7 +216,7 @@ void line(V a, V b, C c, float w = 1)
 {
     color(c);
     glLineWidth(w);
-    glBegin(GL_LINES);
+    DrawStats::Begin(GL_LINES);
     glVertex2f(a.x, a.y);
     glVertex2f(b.x, b.y);
     glEnd();
@@ -240,9 +241,10 @@ void text(float x, float y, const std::wstring &s, C c = ink)
                 glDeleteLists(id, 1);
                 continue;
             }
+            DrawStats::RegisterBitmap(id);
             glyphs[ch] = id;
         }
-        glCallList(glyphs[ch]);
+        DrawStats::CallList(glyphs[ch]);
     }
 }
 void LevelText(float x, float y, const std::wstring &content, float r, float g, float b)
@@ -466,14 +468,14 @@ void tree(V p, float s)
     if (!treeList)
     {
         treeList = glGenLists(1);
-        glNewList(treeList, GL_COMPILE);
+        DrawStats::NewList(treeList, GL_COMPILE);
         treeGeometry({0, 0}, 1);
-        glEndList();
+        DrawStats::EndList();
     }
     glPushMatrix();
     glTranslatef(p.x, p.y, 0);
     glScalef(s, s, 1);
-    glCallList(treeList);
+    DrawStats::CallList(treeList);
     glPopMatrix();
 }
 void house(V p, int id)
@@ -697,7 +699,7 @@ void drawWorld()
             terrainOrigin = {width * .5f, height * .53f};
             for (int pass = 0; pass < 2; pass++)
             {
-                glNewList(terrainList + pass, GL_COMPILE);
+                DrawStats::NewList(terrainList + pass, GL_COMPILE);
                 for (int x = -41; x < 44; x++)
                     for (int y = -41; y < 36; y++)
                     {
@@ -713,7 +715,7 @@ void drawWorld()
                         float xy[] = {a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y};
                         Visuals::MaterialQuad(material, xy, .92f + hash(x / 3, y / 3) * .10f, 0);
                     }
-                glEndList();
+                DrawStats::EndList();
             }
             camera = oldCamera;
         }
@@ -727,13 +729,13 @@ void drawWorld()
         glPushMatrix();
         glTranslatef(width * .5f - terrainOrigin.x - (camera.x - camera.y) * 31,
                      height * .53f - terrainOrigin.y - (camera.x + camera.y) * 15.5f, 0);
-        glCallList(terrainList);
+        DrawStats::CallList(terrainList);
         glMatrixMode(GL_TEXTURE);
         glPushMatrix();
         glTranslatef(worldTime * .024f, worldTime * .012f, 0);
         glMatrixMode(GL_MODELVIEW);
         Visuals::BeginWater(worldTime);
-        glCallList(terrainList + 1);
+        DrawStats::CallList(terrainList + 1);
         Visuals::EndEffect();
         glMatrixMode(GL_TEXTURE);
         glPopMatrix();
@@ -758,7 +760,7 @@ void drawWorld()
             V p = project({15.f + float(i % 2) * 2, -10.f + float(i) * 2});
             float t = fmodf(worldTime * .15f + i * .2f, 1);
             color({.46f, .72f, .73f, (1 - t) * .14f});
-            glBegin(GL_LINE_LOOP);
+            DrawStats::Begin(GL_LINE_LOOP);
             for (int j = 0; j < 48; j++)
             {
                 float a = j * 6.2831853f / 48;
@@ -943,6 +945,7 @@ void minimap()
 }
 void draw()
 {
+    DrawStats::Frame frameStats;
     glViewport(0, 0, width, height);
     glClearColor(.035f, .065f, .065f, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1319,10 +1322,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         bool okay = tested.RunTests(report);
         okay = AssetCache::RunTests(report) && okay;
         okay = Scene::SceneGraph::RunTests(report) && okay;
+        okay = DrawStats::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
     }
+    DrawStats::InitializeConsole(wcsstr(command, L"--capture") || wcsstr(command, L"--benchmark"));
     WNDCLASSW wc{};
     wc.style = CS_OWNDC;
     wc.lpfnWndProc = proc;

@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#include "DrawStats.h"
 #include "SceneModels.h"
 #include "AssetCache.h"
 #include <array>
@@ -133,7 +134,7 @@ void Draw(Kind kind, float x, float y, float scale, float phase, bool flash)
         glTranslatef(0, shift, 0);
         if (p.shape == 0)
         {
-            glBegin(GL_TRIANGLE_FAN);
+            DrawStats::Begin(GL_TRIANGLE_FAN);
             glVertex2f(p.x, p.y);
             for (int j = 0; j <= 32; j++)
             {
@@ -144,7 +145,7 @@ void Draw(Kind kind, float x, float y, float scale, float phase, bool flash)
         }
         else if (p.shape == 1)
         {
-            glBegin(GL_QUADS);
+            DrawStats::Begin(GL_QUADS);
             glVertex2f(p.x, p.y);
             glVertex2f(p.x + p.w, p.y);
             glVertex2f(p.x + p.w, p.y + p.h);
@@ -153,7 +154,7 @@ void Draw(Kind kind, float x, float y, float scale, float phase, bool flash)
         }
         else if (p.shape == 2)
         {
-            glBegin(GL_TRIANGLES);
+            DrawStats::Begin(GL_TRIANGLES);
             glVertex2f(p.x, p.y);
             glVertex2f(p.u, p.v);
             glVertex2f(p.w, p.h);
