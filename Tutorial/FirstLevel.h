@@ -1,5 +1,6 @@
 #pragma once
 #include "SceneGraph.h"
+#include <map>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -102,6 +103,7 @@ class World
     bool RunTests(std::string &report);
 
   private:
+    std::map<std::pair<int, int>, Scene::ActorId> sceneryChunks_;
     Scene::SceneGraph scene_;
     Scene::ActorId scenery_ = 0, characters_ = 0, loot_ = 0;
     Scene::ActorId SpawnActor(Scene::Kind kind, Position position, int index = -1);
@@ -116,6 +118,7 @@ class World
     std::wstring notice_;
     float noticeTime_ = 0;
     float pathTimer_ = 0;
+    int navigationX_ = -1, navigationY_ = -1;
     bool completed_ = false;
     void ConnectRegions();
     void RebuildDistanceField();

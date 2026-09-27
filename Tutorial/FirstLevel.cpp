@@ -1,4 +1,5 @@
 #include "FirstLevel.h"
+#include "Profiler.h"
 #include <algorithm>
 #include <cmath>
 #include <queue>
@@ -47,6 +48,14 @@ Scene::ActorId World::SpawnActor(Scene::Kind kind, Position position, int index)
     auto parent = kind == Scene::Kind::Enemy || kind == Scene::Kind::Player ? characters_
                   : kind == Scene::Kind::Loot                               ? loot_
                                                                             : scenery_;
+    if (kind == Scene::Kind::Tree || kind == Scene::Kind::Rock)
+    {
+        auto key = std::make_pair(int(std::floor(position.x / 16)), int(std::floor(position.y / 16)));
+        auto &chunk = sceneryChunks_[key];
+        if (!chunk)
+            chunk = scene_.Create("SpatialChunk", Scene::Kind::Group, scenery_).GetId();
+        parent = chunk;
+    }
     auto &actor = scene_.Create("WorldObject", kind, parent);
     actor.SetWorldPosition(position);
     actor.SetDataIndex(index);
@@ -81,6 +90,7 @@ bool World::IsWalkableCell(int x, int y) const
 }
 bool World::IsBlocked(Position p) const
 {
+    Profiler::Add("collision_queries");
     constexpr float radius = .23f;
     for (float dx : {-radius, radius})
         for (float dy : {-radius, radius})
@@ -90,7 +100,9 @@ bool World::IsBlocked(Position p) const
 }
 void World::Generate(std::uint32_t seed)
 {
+    Profiler::Scope profile("map_generate");
     scene_.Clear();
+    sceneryChunks_.clear();
     scenery_ = scene_.Create("Scenery", Scene::Kind::Group).GetId();
     characters_ = scene_.Create("Characters", Scene::Kind::Group).GetId();
     loot_ = scene_.Create("Loot", Scene::Kind::Group).GetId();
@@ -251,8 +263,11 @@ bool World::IsConnected() const
 }
 void World::RebuildDistanceField()
 {
+    Profiler::Scope profile("ai_navigation_rebuild");
     distanceField_.assign(MapSize * MapSize, -1);
     int x = Cell(GetPosition(player_.actor).x), y = Cell(GetPosition(player_.actor).y);
+    navigationX_ = x;
+    navigationY_ = y;
     if (!IsWalkableCell(x, y))
         return;
     std::queue<int> open;
@@ -292,6 +307,7 @@ void World::Move(Scene::ActorId actor, Position movement)
 }
 bool World::HasLineOfSight(Position from, Position to) const
 {
+    Profiler::Add("line_of_sight_queries");
     Position delta = Subtract(to, from);
     int steps = std::max(1, int(std::ceil(Length(delta) * 10)));
     for (int i = 1; i <= steps; i++)
@@ -304,6 +320,7 @@ bool World::HasLineOfSight(Position from, Position to) const
 }
 void World::Update(float dt, Position input, bool sprint)
 {
+    Profiler::Scope profile("level_simulation");
     dt = std::clamp(dt, 0.f, .1f);
     scene_.Update(dt);
     if (!IsActive(player_.actor))
@@ -324,11 +341,14 @@ void World::Update(float dt, Position input, bool sprint)
     pathTimer_ -= dt;
     if (pathTimer_ <= 0)
     {
-        RebuildDistanceField();
+        auto position = GetPosition(player_.actor);
+        if (Cell(position.x) != navigationX_ || Cell(position.y) != navigationY_)
+            RebuildDistanceField();
         pathTimer_ = .25f;
     }
     for (auto &enemy : enemies_)
     {
+        Profiler::Add("ai_entities_tested");
         enemy.hitFlash = std::max(0.f, enemy.hitFlash - dt);
         if (!enemy.alive || !IsActive(enemy.actor))
             continue;
@@ -377,6 +397,7 @@ void World::Update(float dt, Position input, bool sprint)
 }
 bool World::Attack()
 {
+    Profiler::Scope profile("combat_attack");
     if (!IsActive(player_.actor) || IsDead() || player_.attackCooldown > 0)
         return false;
     player_.attackCooldown = .42f;
@@ -416,6 +437,7 @@ bool World::Attack()
 }
 bool World::Pickup()
 {
+    Profiler::Scope profile("loot_pickup");
     if (!IsActive(player_.actor) || IsDead())
         return false;
     int picked = 0;

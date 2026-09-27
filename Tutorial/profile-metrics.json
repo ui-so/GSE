@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "naming": "snake_case English identifiers, explicit unit suffixes",
+  "definitions": "See PROFILING.md for inclusive timing, optional samples, scene_mode enum and repeated traversal semantics.",
+  "metrics": [
+    {
+      "name": "actor_count",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "ai_entities_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "asset_cache_read_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "collision_candidates_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "collision_queries",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "draw_calls",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "dynamic_batches",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "dynamic_upload_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "elapsed_since_update_ms",
+      "kind": "counter",
+      "unit": "ms"
+    },
+    {
+      "name": "font_glyph_cache_misses",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "framebuffer_copy_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "instanced_draw_calls",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "line_of_sight_queries",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "map_seed",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "model_instances",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "opengl_errors",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "postprocess_enabled",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "program_bind_calls",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "queued_actors",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "render_invocations",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "scene_mode",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "scene_nodes_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "scene_subtrees_culled",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "simulation_dt_clamped",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "static_draw_calls",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "static_upload_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "submitted_batches",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "submitted_vertices",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "terrain_chunks_culled",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "terrain_chunks_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "terrain_chunks_visible",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "texture_bind_calls",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "viewport_height",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "viewport_width",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "ai_navigation_rebuild",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "asset_cache_load_or_generate",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "asset_generate_and_write",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "benchmark_gpu_wait",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "collision_grid_rebuild",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "combat_attack",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "font_glyph_cache_miss",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "game_update",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "level_simulation",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "loot_pickup",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "map_generate",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "minimap_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "minimap_texture_build",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "objects_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "postprocess_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "present_wait",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_batch_upload_submit",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_instance_upload_submit",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_queue_build_sort",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_target_setup",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_total_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "scene_bounds_rebuild",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "scene_update",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "shadows_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "terrain_chunk_build",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "terrain_submit_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "tutorial_world_generate",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "ui_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "ui_text_build",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "wildlife_simulation",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "world_build_submit",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "asset_cache_generated",
+      "kind": "event"
+    },
+    {
+      "name": "asset_cache_hit",
+      "kind": "event"
+    },
+    {
+      "name": "asset_cache_write_failure",
+      "kind": "event"
+    },
+    {
+      "name": "launch_arguments",
+      "kind": "event"
+    },
+    {
+      "name": "opengl_error",
+      "kind": "event"
+    },
+    {
+      "name": "postprocess_fallback",
+      "kind": "event"
+    },
+    {
+      "name": "renderer_initialization_failed",
+      "kind": "event"
+    },
+    {
+      "name": "objects",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "postprocess",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "render_total",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "shadows",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "terrain",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "ui",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "world",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    }
+  ],
+  "frame_fields": {
+    "frame_id": "monotonic integer per main loop",
+    "frame_start_ms": "milliseconds since profiling session began",
+    "frame_ms": "CPU wall time through present, excludes end-frame serialization",
+    "frame_interval_ms": "milliseconds between successive frame starts",
+    "warmup": "first 20 frames",
+    "over_budget": "frame_ms exceeds 16.6667"
+  },
+  "profiler_counters": {
+    "profiler_emit_previous_ms": "previous frame serialization and enqueue time",
+    "log_writer_last_batch_ms": "background I/O time for last batch, not render stall",
+    "log_records_dropped_total": "cumulative dropped records",
+    "log_queue_depth": "queued records at frame end",
+    "process_working_set_bytes": "sampled every 120 frames",
+    "process_private_bytes": "sampled every 120 frames"
+  }
+}

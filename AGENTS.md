@@ -6,3 +6,5 @@
 - 확정 방향, 기술적 설계 후보, 서사 예시와 미정 사항을 구분한다.
 - 사용자가 기본 방향의 추가·변경을 확정하면 GAME_GUIDELINES.md를 함께 갱신한다.
 - 코드 작업 전 CODE_CONVENTIONS.md와 Tutorial/.clang-format을 읽고 새 코드에 적용한다.
+
+- 성능 관련 변경과 새 런타임 시스템은 Tutorial/PROFILING.md의 계측·검증 규칙을 따른다.

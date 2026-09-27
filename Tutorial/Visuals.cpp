@@ -3,11 +3,15 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "DrawStats.h"
+#include "RenderBatch.h"
+#include "Profiler.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
 #include <cstdint>
 #include <fstream>
+#include <map>
+#include <string>
 #include "Visuals.h"
 #include "AssetCache.h"
 namespace Visuals
@@ -16,6 +20,20 @@ namespace
 {
 GLuint materials[4]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
 int sceneW = 0, sceneH = 0;
+using GenFramebuffersT = void(APIENTRY *)(GLsizei, GLuint *);
+using BindFramebufferT = void(APIENTRY *)(GLenum, GLuint);
+using AttachTextureT = void(APIENTRY *)(GLenum, GLenum, GLenum, GLuint, GLint);
+using CheckFramebufferT = GLenum(APIENTRY *)(GLenum);
+using DeleteFramebuffersT = void(APIENTRY *)(GLsizei, const GLuint *);
+using ActiveTextureT = void(APIENTRY *)(GLenum);
+GenFramebuffersT genFramebuffers = nullptr;
+BindFramebufferT bindFramebuffer = nullptr;
+AttachTextureT attachTexture = nullptr;
+CheckFramebufferT checkFramebuffer = nullptr;
+DeleteFramebuffersT deleteFramebuffers = nullptr;
+ActiveTextureT activeTexture = nullptr;
+GLuint sceneFbo = 0, bloomFbo = 0, bloomTexture = 0;
+bool sceneTarget = false;
 using CreateShaderT = GLuint(APIENTRY *)(GLenum);
 using ShaderSourceT = void(APIENTRY *)(GLuint, GLsizei, const char *const *, const GLint *);
 using CompileShaderT = void(APIENTRY *)(GLuint);
@@ -46,6 +64,15 @@ Uniform1iT uniform1i;
 Uniform1fT uniform1f;
 Uniform2fT uniform2f;
 GetUniformT getUniform;
+GLint Uniform(GLuint id, const char *name)
+{
+    static std::map<std::pair<GLuint, std::string>, GLint> locations;
+    auto key = std::make_pair(id, std::string(name));
+    auto found = locations.find(key);
+    if (found != locations.end())
+        return found->second;
+    return locations[key] = getUniform(id, name);
+}
 float noise(int x, int y)
 {
     unsigned n = unsigned(x) * 374761393u + unsigned(y) * 668265263u;
@@ -66,16 +93,16 @@ GLuint upload(int w, int h, const std::vector<unsigned char> &pixels, bool repea
 }
 void quad(float x, float y, float w, float h, float u, float v, float uw, float vh)
 {
-    DrawStats::Begin(GL_QUADS);
-    glTexCoord2f(u, v);
-    glVertex2f(x, y);
-    glTexCoord2f(u + uw, v);
-    glVertex2f(x + w, y);
-    glTexCoord2f(u + uw, v + vh);
-    glVertex2f(x + w, y + h);
-    glTexCoord2f(u, v + vh);
-    glVertex2f(x, y + h);
-    glEnd();
+    RenderBatch::Begin(GL_QUADS);
+    RenderBatch::TexCoord2f(u, v);
+    RenderBatch::Vertex2f(x, y);
+    RenderBatch::TexCoord2f(u + uw, v);
+    RenderBatch::Vertex2f(x + w, y);
+    RenderBatch::TexCoord2f(u + uw, v + vh);
+    RenderBatch::Vertex2f(x + w, y + h);
+    RenderBatch::TexCoord2f(u, v + vh);
+    RenderBatch::Vertex2f(x, y + h);
+    RenderBatch::End();
 }
 struct Pixel
 {
@@ -215,10 +242,12 @@ void loadPost()
     const char *vs = "#version 120\nvarying vec2 uv;void "
                      "main(){gl_Position=gl_ModelViewProjectionMatrix*gl_Vertex;uv=gl_MultiTexCoord0.xy;}";
     const char *fs = R"GLSL(#version 120
-uniform sampler2D scene;uniform vec2 pixel;uniform float clock;varying vec2 uv;
+uniform sampler2D scene;uniform sampler2D bloomImage;uniform int pass;uniform int bloomReady;uniform vec2 pixel;uniform float clock;varying vec2 uv;
 vec3 bright(vec2 p){vec3 s=texture2D(scene,p).rgb;return s*smoothstep(0.48,0.93,max(max(s.r,s.g),s.b));}
 void main(){vec3 c=texture2D(scene,uv).rgb;
- vec3 bloom=(bright(uv+vec2(pixel.x*6.0,0.0))+bright(uv-vec2(pixel.x*6.0,0.0))+bright(uv+vec2(0.0,pixel.y*6.0))+bright(uv-vec2(0.0,pixel.y*6.0)))*0.25;
+ vec3 bloom=vec3(0);if(pass==1||bloomReady==0)bloom=(bright(uv+vec2(pixel.x*6.0,0.0))+bright(uv-vec2(pixel.x*6.0,0.0))+bright(uv+vec2(0.0,pixel.y*6.0))+bright(uv-vec2(0.0,pixel.y*6.0)))*0.25;
+ if(pass==1){gl_FragColor=vec4(bloom,1);return;}
+ if(bloomReady==1)bloom=texture2D(bloomImage,uv).rgb;
  c=(c+bloom*0.37)*(1.10-c*0.10)*vec3(0.99,1.025,1.04);
  vec2 d=uv-0.5;c*=1.0-0.33*dot(d,d);
  float grain=fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))+clock*0.13)-0.5;
@@ -350,14 +379,18 @@ bool Initialize()
         });
         materials[type] = upload(128, 128, data, true);
     }
-    for (int i = 0; i < 4; i++)
+    std::vector<unsigned char> spriteAtlas(size_t(AW * 2) * AH * 2 * 4);
+    for (int i = 0; i < 4; ++i)
     {
         auto pixels = AssetCache::LoadOrCreate("sprite-" + std::to_string(i), AW * AH * 4,
                                                [i]() { return bakeSprite(i); });
-        sprites[i] = upload(AW, AH, pixels);
+        for (int y = 0; y < AH; ++y)
+            std::copy_n(pixels.data() + size_t(y) * AW * 4, AW * 4,
+                        spriteAtlas.data() + (size_t(y + (i / 2) * AH) * AW * 2 + (i % 2) * AW) * 4);
         if (i == 0)
             atlasPreview = pixels;
     }
+    sprites[0] = upload(AW * 2, AH * 2, spriteAtlas);
     auto pixels = AssetCache::LoadOrCreate("shadow", 128 * 128 * 4, []() {
         std::vector<unsigned char> pixels(128 * 128 * 4);
         for (int y = 0; y < 128; y++)
@@ -372,75 +405,165 @@ bool Initialize()
             }
         return pixels;
     });
-    shadow = upload(128, 128, pixels);
+    // Share one texture between solid-colored triangles and soft shadows, preserving draw order.
+    std::vector<unsigned char> shadowAtlas(256 * 128 * 4, 255);
+    for (int y = 0; y < 128; ++y)
+        std::copy_n(pixels.data() + y * 128 * 4, 128 * 4, shadowAtlas.data() + y * 256 * 4);
+    shadow = upload(256, 128, shadowAtlas);
+    RenderBatch::SetSolidTexture(shadow, .75f, .5f);
     glGenTextures(1, &scene);
     loadPost();
     loadEffects();
+    genFramebuffers = reinterpret_cast<GenFramebuffersT>(wglGetProcAddress("glGenFramebuffers"));
+    bindFramebuffer = reinterpret_cast<BindFramebufferT>(wglGetProcAddress("glBindFramebuffer"));
+    attachTexture = reinterpret_cast<AttachTextureT>(wglGetProcAddress("glFramebufferTexture2D"));
+    checkFramebuffer = reinterpret_cast<CheckFramebufferT>(wglGetProcAddress("glCheckFramebufferStatus"));
+    deleteFramebuffers = reinterpret_cast<DeleteFramebuffersT>(wglGetProcAddress("glDeleteFramebuffers"));
+    activeTexture = reinterpret_cast<ActiveTextureT>(wglGetProcAddress("glActiveTexture"));
+    if (genFramebuffers && bindFramebuffer && attachTexture && checkFramebuffer && deleteFramebuffers &&
+        activeTexture)
+    {
+        genFramebuffers(1, &sceneFbo);
+        genFramebuffers(1, &bloomFbo);
+        glGenTextures(1, &bloomTexture);
+    }
+    else
+        Profiler::Event("postprocess_fallback", "framebuffer_objects_unavailable");
     return program != 0;
+}
+unsigned MaterialTexture(int material)
+{
+    return materials[material];
 }
 void MaterialQuad(int material, const float *xy, float variation, float time)
 {
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, materials[material]);
-    glColor4f(variation, variation, variation, 1);
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, materials[material]);
+    RenderBatch::Color4f(variation, variation, variation, 1);
     float t = material == 3 ? time * .024f : 0;
-    DrawStats::Begin(GL_QUADS);
+    RenderBatch::Begin(GL_QUADS);
     for (int i = 0; i < 4; i++)
     {
-        glTexCoord2f((i == 1 || i == 2 ? 1.f : 0) + t, (i >= 2 ? 1.f : 0) + t * .5f);
-        glVertex2f(xy[i * 2], xy[i * 2 + 1]);
+        RenderBatch::TexCoord2f((i == 1 || i == 2 ? 1.f : 0) + t, (i >= 2 ? 1.f : 0) + t * .5f);
+        RenderBatch::Vertex2f(xy[i * 2], xy[i * 2 + 1]);
     }
-    glEnd();
-    glDisable(GL_TEXTURE_2D);
+    RenderBatch::End();
+    RenderBatch::Disable(GL_TEXTURE_2D);
 }
 void Sprite(float x, float y, int palette, int facing, int action, float phase)
 {
     int frame = int(phase * 8) % 8;
     int row = std::clamp(action, 0, 3) * 4 + std::clamp(facing, 0, 3);
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, sprites[palette % 4]);
-    glColor4f(1, 1, 1, 1);
-    quad(x - 25, y - 59, 50, 62, frame / 8.f, row / 16.f, 1 / 8.f, 1 / 16.f);
-    glDisable(GL_TEXTURE_2D);
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, sprites[0]);
+    RenderBatch::Color4f(1, 1, 1, 1);
+    quad(x - 25, y - 59, 50, 62, (frame / 8.f + (palette % 2)) * .5f,
+         (row / 16.f + ((palette % 4) / 2)) * .5f, 1 / 16.f, 1 / 32.f);
+    RenderBatch::Disable(GL_TEXTURE_2D);
 }
 void SoftShadow(float x, float y, float radius, float stretch, float opacity)
 {
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, shadow);
-    glColor4f(1, 1, 1, opacity);
-    quad(x - radius, y - radius * stretch, radius * 2, radius * stretch * 2, 0, 0, 1, 1);
-    glDisable(GL_TEXTURE_2D);
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
+    RenderBatch::Color4f(1, 1, 1, opacity);
+    quad(x - radius, y - radius * stretch, radius * 2, radius * stretch * 2, 0, 0, .5f, 1);
+    RenderBatch::Disable(GL_TEXTURE_2D);
 }
 bool PostAvailable()
 {
     return program != 0;
 }
-void PostProcess(int width, int height, float time, bool enabled)
+void BeginScene(int width, int height, bool enabled)
 {
+    Profiler::Scope scope("render_target_setup");
+    RenderBatch::Flush();
+    sceneTarget = false;
     if (!program || !enabled)
+    {
+        if (bindFramebuffer)
+            bindFramebuffer(0x8D40, 0);
         return;
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, scene);
+    }
     if (width != sceneW || height != sceneH)
     {
         sceneW = width;
         sceneH = height;
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        for (int i = 0; i < (sceneFbo ? 2 : 1); ++i)
+        {
+            GLuint textureId = i == 0 ? scene : bloomTexture;
+            glBindTexture(GL_TEXTURE_2D, textureId);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, i == 0 ? width : std::max(1, width / 2),
+                         i == 0 ? height : std::max(1, height / 2), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            if (sceneFbo)
+            {
+                bindFramebuffer(0x8D40, i == 0 ? sceneFbo : bloomFbo);
+                attachTexture(0x8D40, 0x8CE0, GL_TEXTURE_2D, textureId, 0);
+                if (checkFramebuffer(0x8D40) != 0x8CD5)
+                {
+                    Profiler::Event("postprocess_fallback", "framebuffer_incomplete");
+                    deleteFramebuffers(1, &sceneFbo);
+                    deleteFramebuffers(1, &bloomFbo);
+                    sceneFbo = bloomFbo = 0;
+                    break;
+                }
+            }
+        }
     }
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
-    glDisable(GL_BLEND);
+    if (sceneFbo)
+    {
+        bindFramebuffer(0x8D40, sceneFbo);
+        sceneTarget = true;
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    else if (bindFramebuffer)
+        bindFramebuffer(0x8D40, 0);
+}
+void PostProcess(int width, int height, float time, bool enabled)
+{
+    Profiler::Scope scope("postprocess_cpu");
+    Profiler::GpuScope gpu("postprocess");
+    RenderBatch::Flush();
+    if (!program || !enabled)
+        return;
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, scene);
+    RenderBatch::Disable(GL_BLEND);
     useProgram(program);
-    uniform1i(getUniform(program, "scene"), 0);
-    uniform2f(getUniform(program, "pixel"), 1.f / width, 1.f / height);
-    uniform1f(getUniform(program, "clock"), time);
+    uniform1i(Uniform(program, "scene"), 0);
+    uniform1i(Uniform(program, "bloomImage"), 1);
+    uniform2f(Uniform(program, "pixel"), 1.f / width, 1.f / height);
+    uniform1f(Uniform(program, "clock"), time);
+    uniform1i(Uniform(program, "bloomReady"), sceneTarget ? 1 : 0);
+    if (sceneTarget)
+    {
+        bindFramebuffer(0x8D40, bloomFbo);
+        glViewport(0, 0, std::max(1, width / 2), std::max(1, height / 2));
+        uniform1i(Uniform(program, "pass"), 1);
+        quad(0, 0, float(width), float(height), 0, 1, 1, -1);
+        RenderBatch::Flush();
+        bindFramebuffer(0x8D40, 0);
+        glViewport(0, 0, width, height);
+        activeTexture(0x84C1);
+        glBindTexture(GL_TEXTURE_2D, bloomTexture);
+        activeTexture(0x84C0);
+    }
+    else
+    {
+        glBindTexture(GL_TEXTURE_2D, scene);
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+        Profiler::Add("framebuffer_copy_bytes", double(width) * height * 4);
+    }
+    uniform1i(Uniform(program, "pass"), 0);
+    RenderBatch::Color4f(1, 1, 1, 1);
     quad(0, 0, float(width), float(height), 0, 1, 1, -1);
+    RenderBatch::Flush();
     useProgram(0);
-    glDisable(GL_TEXTURE_2D);
-    glEnable(GL_BLEND);
+    RenderBatch::Disable(GL_TEXTURE_2D);
+    RenderBatch::Enable(GL_BLEND);
 }
 void SaveAtlas(const char *path)
 {
@@ -466,15 +589,17 @@ void BeginWater(float time)
 {
     if (!effectsProgram)
         return;
+    RenderBatch::Flush();
     useProgram(effectsProgram);
-    uniform1i(getUniform(effectsProgram, "image"), 0);
-    uniform1i(getUniform(effectsProgram, "mode"), 0);
-    uniform1f(getUniform(effectsProgram, "clock"), time);
+    uniform1i(Uniform(effectsProgram, "image"), 0);
+    uniform1i(Uniform(effectsProgram, "mode"), 0);
+    uniform1f(Uniform(effectsProgram, "clock"), time);
 }
 void EndEffect()
 {
     if (effectsProgram)
-        useProgram(0);
+        RenderBatch::Flush();
+    useProgram(0);
 }
 bool EffectsAvailable()
 {
@@ -484,15 +609,27 @@ void Flame(float x, float y, float scale, float time)
 {
     if (!effectsProgram)
         return;
+    RenderBatch::Flush();
     useProgram(effectsProgram);
-    uniform1i(getUniform(effectsProgram, "mode"), 1);
-    uniform1f(getUniform(effectsProgram, "clock"), time);
-    glColor4f(1, 1, 1, 1);
+    uniform1i(Uniform(effectsProgram, "mode"), 1);
+    uniform1f(Uniform(effectsProgram, "clock"), time);
+    // The procedural flame consumes UV even though it does not sample this texture.
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
+    RenderBatch::Color4f(1, 1, 1, 1);
     quad(x - 30 * scale, y - 66 * scale, 60 * scale, 72 * scale, 0, 0, 1, 1);
+    RenderBatch::Flush();
     useProgram(0);
+    RenderBatch::Disable(GL_TEXTURE_2D);
 }
 void Shutdown()
 {
+    if (sceneFbo)
+        deleteFramebuffers(1, &sceneFbo);
+    if (bloomFbo)
+        deleteFramebuffers(1, &bloomFbo);
+    if (bloomTexture)
+        glDeleteTextures(1, &bloomTexture);
     glDeleteTextures(4, materials);
     glDeleteTextures(4, sprites);
     glDeleteTextures(1, &shadow);

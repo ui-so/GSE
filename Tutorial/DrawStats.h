@@ -1,7 +1,9 @@
 #pragma once
 #include <string>
+#include <cstddef>
 namespace DrawStats
 {
+void RecordDraw(std::size_t vertices, std::size_t instances);
 void InitializeConsole(bool hidden);
 void Begin(unsigned int mode);
 void NewList(unsigned int list, unsigned int mode);

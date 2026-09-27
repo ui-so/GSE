@@ -1,4 +1,5 @@
 #include "SceneGraph.h"
+#include "Profiler.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -11,6 +12,7 @@ SceneGraph::SceneGraph()
 }
 Actor &SceneGraph::Create(const std::string &name, Kind kind, ActorId parent)
 {
+    Touch();
     if (parent == InvalidActor)
         parent = root_;
     if (parent != InvalidActor && (!Find(parent) || Find(parent)->pendingRemoval_))
@@ -44,6 +46,7 @@ const Actor &SceneGraph::Root() const
 }
 bool SceneGraph::Reparent(ActorId child, ActorId parent, bool keepWorld)
 {
+    Touch();
     Actor *node = Find(child);
     Actor *destination = Find(parent);
     if (!node || !destination || child == root_ || node->pendingRemoval_ || destination->pendingRemoval_)
@@ -91,6 +94,7 @@ void SceneGraph::EraseSubtree(ActorId id)
 }
 bool SceneGraph::Remove(ActorId id)
 {
+    Touch();
     auto node = Find(id);
     if (!node || id == root_ || node->pendingRemoval_)
         return false;
@@ -105,6 +109,7 @@ bool SceneGraph::Remove(ActorId id)
 }
 void SceneGraph::Clear()
 {
+    Touch();
     if (updating_)
         throw std::logic_error("Clear during scene update is not supported; remove a subtree instead");
     actors_.clear();
@@ -130,6 +135,7 @@ std::vector<const Actor *> SceneGraph::Traverse() const
 }
 void SceneGraph::Update(float dt)
 {
+    Profiler::Scope scope("scene_update");
     if (updating_)
         throw std::logic_error("Nested scene update");
     std::vector<ActorId> snapshot;
@@ -158,17 +164,77 @@ void SceneGraph::Update(float dt)
         EraseSubtree(id);
     removals_.clear();
 }
-std::vector<const Actor *> SceneGraph::RenderQueue(Layer layer) const
+SceneGraph::Bounds SceneGraph::BuildBounds(ActorId id) const
 {
+    Bounds bounds;
+    auto node = Find(id);
+    if (!node || !node->IsVisibleInHierarchy())
+        return bounds_[id] = bounds;
+    if (node->GetKind() != Kind::Group && node->GetLayer() == Layer::World)
+    {
+        auto m = node->GetWorldMatrix();
+        float x = (m.x - m.y) * 31, y = (m.x + m.y) * 15.5f - node->GetWorldElevation();
+        float radius = 320 * std::max({1.f, std::abs(m.a) + std::abs(m.c), std::abs(m.b) + std::abs(m.d)});
+        bounds = {x - radius, y - radius, x + radius, y + radius};
+    }
+    for (auto child : node->GetChildren())
+    {
+        auto b = BuildBounds(child);
+        bounds.left = std::min(bounds.left, b.left);
+        bounds.top = std::min(bounds.top, b.top);
+        bounds.right = std::max(bounds.right, b.right);
+        bounds.bottom = std::max(bounds.bottom, b.bottom);
+    }
+    return bounds_[id] = bounds;
+}
+void SceneGraph::VisibleVisit(ActorId id, const Bounds &view, std::vector<const Actor *> &result) const
+{
+    Profiler::Add("scene_nodes_tested");
+    auto found = bounds_.find(id);
+    if (found == bounds_.end())
+        return;
+    const auto &b = found->second;
+    if (b.right < view.left || b.left > view.right || b.bottom < view.top || b.top > view.bottom)
+    {
+        Profiler::Add("scene_subtrees_culled");
+        return;
+    }
+    auto actor = Find(id);
+    if (actor->GetKind() != Kind::Group && actor->GetLayer() == Layer::World && actor->IsVisibleInHierarchy())
+        result.push_back(actor);
+    for (auto child : actor->GetChildren())
+        VisibleVisit(child, view, result);
+}
+std::vector<const Actor *> SceneGraph::RenderQueue(Layer layer, const View *view) const
+{
+    Profiler::Scope scope("render_queue_build_sort");
     std::vector<const Actor *> result;
-    for (auto actor : Traverse())
-        if (actor->GetKind() != Kind::Group && actor->GetLayer() == layer && actor->IsVisibleInHierarchy())
-            result.push_back(actor);
+    if (view && layer == Layer::World)
+    {
+        if (boundsRevision_ != revision_)
+        {
+            Profiler::Scope timing("scene_bounds_rebuild");
+            bounds_.clear();
+            BuildBounds(root_);
+            boundsRevision_ = revision_;
+        }
+        float x = (view->cameraX - view->cameraY) * 31, y = (view->cameraX + view->cameraY) * 15.5f;
+        VisibleVisit(
+            root_,
+            {x - view->width * .5f, y - view->height * .53f, x + view->width * .5f, y + view->height * .47f},
+            result);
+    }
+    else
+        for (auto actor : Traverse())
+            if (actor->GetKind() != Kind::Group && actor->GetLayer() == layer &&
+                actor->IsVisibleInHierarchy())
+                result.push_back(actor);
     std::stable_sort(result.begin(), result.end(), [](const Actor *a, const Actor *b) {
         auto x = a->GetWorldPosition(), y = b->GetWorldPosition();
         float first = x.x + x.y, second = y.x + y.y;
         return first == second ? a->GetId() < b->GetId() : first < second;
     });
+    Profiler::Add("queued_actors", double(result.size()));
     return result;
 }
 std::size_t SceneGraph::Size() const
@@ -248,6 +314,26 @@ bool SceneGraph::RunTests(std::string &report)
     graph.Clear();
     if (!Check(!graph.Find(id) && graph.Size() == 1, "stale ids after clear"))
         return false;
+    SceneGraph visibility;
+    auto &nearGroup = visibility.Create("near", Kind::Group);
+    auto &near = visibility.Create("visible", Kind::Tree, nearGroup.GetId());
+    auto &farGroup = visibility.Create("far", Kind::Group);
+    farGroup.SetLocalPosition({1000, 1000});
+    auto &far = visibility.Create("hidden", Kind::Tree, farGroup.GetId());
+    View view{0, 0, 1280, 800};
+    auto visible = visibility.RenderQueue(Layer::World, &view);
+    if (!Check(visible.size() == 1 && visible[0]->GetId() == near.GetId(), "subtree camera culling"))
+        return false;
+    farGroup.SetLocalPosition({0, 0});
+    if (!Check(visibility.RenderQueue(Layer::World, &view).size() == 2,
+               "bounds invalidate after parent move"))
+        return false;
+    nearGroup.SetVisible(false);
+    if (!Check(visibility.RenderQueue(Layer::World, &view).size() == 1 &&
+                   visibility.RenderQueue(Layer::World, &view)[0]->GetId() == far.GetId(),
+               "bounds invalidate after hide"))
+        return false;
+    report += "PASS: spatial subtree culling and transform/visibility cache invalidation.\n";
     report += "PASS: actor transforms, keep-world parent changes, cycle rejection, inherited state, "
               "traversal, deferred destruction, stable depth order and stale handles.\n";
     return true;

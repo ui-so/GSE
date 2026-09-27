@@ -1,5 +1,6 @@
 #pragma once
 #include "Actor.h"
+#include "RenderBatch.h"
 #include <gl/GL.h>
 namespace SceneRender
 {
@@ -19,13 +20,13 @@ inline void Push(const Scene::Actor &actor, float pivotX, float pivotY, bool int
         d = m.d;
     }
     const GLfloat matrix[16] = {a, b, 0, 0, c, d, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-    glPushMatrix();
-    glTranslatef(pivotX, pivotY, 0);
-    glMultMatrixf(matrix);
-    glTranslatef(-pivotX, -pivotY, 0);
+    RenderBatch::PushMatrix();
+    RenderBatch::Translatef(pivotX, pivotY, 0);
+    RenderBatch::MultMatrixf(matrix);
+    RenderBatch::Translatef(-pivotX, -pivotY, 0);
 }
 inline void Pop()
 {
-    glPopMatrix();
+    RenderBatch::PopMatrix();
 }
 } // namespace SceneRender

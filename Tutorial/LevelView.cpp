@@ -3,6 +3,9 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "DrawStats.h"
+#include "RenderBatch.h"
+#include "Profiler.h"
+#include "TerrainBatch.h"
 #include "LevelView.h"
 #include "SceneModels.h"
 #include "SceneRender.h"
@@ -24,19 +27,21 @@ struct Color
 };
 Frame frame;
 TextRenderer renderText = nullptr;
-GLuint terrainLists = 0;
+TerrainBatch::Map terrainMap;
+GLuint minimapTexture = 0;
+std::uint32_t minimapSeed = 0;
 std::uint32_t terrainSeed = 0;
-Point terrainOrigin{};
+
 constexpr Color Ink{.79f, .83f, .77f}, Gold{.9f, .73f, .40f}, Mint{.40f, .78f, .67f};
 void Rectangle(float x, float y, float w, float h, Color c)
 {
-    glColor4f(c.r, c.g, c.b, c.a);
-    DrawStats::Begin(GL_QUADS);
-    glVertex2f(x, y);
-    glVertex2f(x + w, y);
-    glVertex2f(x + w, y + h);
-    glVertex2f(x, y + h);
-    glEnd();
+    RenderBatch::Color4f(c.r, c.g, c.b, c.a);
+    RenderBatch::Begin(GL_QUADS);
+    RenderBatch::Vertex2f(x, y);
+    RenderBatch::Vertex2f(x + w, y);
+    RenderBatch::Vertex2f(x + w, y + h);
+    RenderBatch::Vertex2f(x, y + h);
+    RenderBatch::End();
 }
 void Text(float x, float y, const std::wstring &s, Color c = Ink)
 {
@@ -49,13 +54,13 @@ Point Project(FirstLevel::Position p, float elevation = 0)
 }
 void Line(Point a, Point b, Color c, float width = 1)
 {
-    glColor4f(c.r, c.g, c.b, c.a);
-    glLineWidth(width);
-    DrawStats::Begin(GL_LINES);
-    glVertex2f(a.x, a.y);
-    glVertex2f(b.x, b.y);
-    glEnd();
-    glLineWidth(1);
+    RenderBatch::Color4f(c.r, c.g, c.b, c.a);
+    RenderBatch::LineWidth(width);
+    RenderBatch::Begin(GL_LINES);
+    RenderBatch::Vertex2f(a.x, a.y);
+    RenderBatch::Vertex2f(b.x, b.y);
+    RenderBatch::End();
+    RenderBatch::LineWidth(1);
 }
 float Distance(FirstLevel::Position a, FirstLevel::Position b)
 {
@@ -63,76 +68,66 @@ float Distance(FirstLevel::Position a, FirstLevel::Position b)
 }
 void DrawTerrain(const FirstLevel::World &world)
 {
-    if (!terrainLists || terrainSeed != world.Seed())
+    if (terrainMap.Empty() || terrainSeed != world.Seed())
     {
-        if (terrainLists)
-            glDeleteLists(terrainLists, 2);
-        terrainLists = glGenLists(2);
         terrainSeed = world.Seed();
-        Frame saved = frame;
-        frame.cameraX = frame.cameraY = 0;
-        terrainOrigin = {frame.width * .5f, frame.height * .53f};
-        for (int pass = 0; pass < 2; pass++)
-        {
-            DrawStats::NewList(terrainLists + pass, GL_COMPILE);
-            for (int y = 0; y < FirstLevel::World::MapSize; y++)
-                for (int x = 0; x < FirstLevel::World::MapSize; x++)
-                {
-                    auto tile = world.Tile(x, y);
-                    bool water = tile == FirstLevel::Terrain::Water;
-                    if (water != (pass == 1))
-                        continue;
-                    float xx = float(x - FirstLevel::World::Origin),
-                          yy = float(y - FirstLevel::World::Origin);
-                    Point a = Project({xx, yy}), b = Project({xx + 1, yy}), c = Project({xx + 1, yy + 1}),
-                          d = Project({xx, yy + 1});
-                    float xy[] = {a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y};
-                    int material = water                                ? 3
-                                   : tile == FirstLevel::Terrain::Stone ? 1
-                                   : tile == FirstLevel::Terrain::Dirt  ? 2
-                                                                        : 0;
-                    Visuals::MaterialQuad(material, xy, .92f, 0);
-                }
-            DrawStats::EndList();
-        }
-        frame = saved;
+        std::vector<TerrainBatch::Tile> tiles;
+        for (int y = 0; y < FirstLevel::World::MapSize; ++y)
+            for (int x = 0; x < FirstLevel::World::MapSize; ++x)
+            {
+                auto tile = world.Tile(x, y);
+                int material = tile == FirstLevel::Terrain::Water   ? 3
+                               : tile == FirstLevel::Terrain::Stone ? 1
+                               : tile == FirstLevel::Terrain::Dirt  ? 2
+                                                                    : 0;
+                tiles.push_back(
+                    {x - FirstLevel::World::Origin, y - FirstLevel::World::Origin, material, .92f});
+            }
+        terrainMap.Build(tiles);
     }
-    glPushMatrix();
-    glTranslatef(frame.width * .5f - terrainOrigin.x - (frame.cameraX - frame.cameraY) * 31,
-                 frame.height * .53f - terrainOrigin.y - (frame.cameraX + frame.cameraY) * 15.5f, 0);
-    DrawStats::CallList(terrainLists);
-    Visuals::BeginWater(frame.time);
-    DrawStats::CallList(terrainLists + 1);
-    Visuals::EndEffect();
-    glPopMatrix();
+    RenderBatch::PushMatrix();
+    RenderBatch::Translatef(frame.width * .5f - (frame.cameraX - frame.cameraY) * 31,
+                            frame.height * .53f - (frame.cameraX + frame.cameraY) * 15.5f, 0);
+    terrainMap.Draw(frame.width, frame.height, frame.time);
+    RenderBatch::PopMatrix();
 }
 void DrawScene(const FirstLevel::World &world)
 {
+    Profiler::Scope sceneScope("world_build_submit");
     for (auto actor : world.GetScene().RenderQueue(Scene::Layer::Ground))
         if (actor->GetKind() == Scene::Kind::Terrain)
         {
             auto position = actor->GetWorldPosition();
             auto pivot = Project({0, 0});
-            glPushMatrix();
-            glTranslatef((position.x - position.y) * 31,
-                         (position.x + position.y) * 15.5f - actor->GetWorldElevation(), 0);
+            RenderBatch::PushMatrix();
+            RenderBatch::Translatef((position.x - position.y) * 31,
+                                    (position.x + position.y) * 15.5f - actor->GetWorldElevation(), 0);
             SceneRender::Push(*actor, pivot.x, pivot.y);
             DrawTerrain(world);
             SceneRender::Pop();
-            glPopMatrix();
+            RenderBatch::PopMatrix();
         }
-    auto objects = world.GetScene().RenderQueue(Scene::Layer::World);
-    for (auto actor : objects)
+    Scene::View view{frame.cameraX, frame.cameraY, frame.width, frame.height};
+    auto objects = world.GetScene().RenderQueue(Scene::Layer::World, &view);
     {
-        Point p = Project(actor->GetWorldPosition(), actor->GetWorldElevation());
-        if (p.x < -100 || p.x > frame.width + 100 || p.y < -60 || p.y > frame.height + 140)
-            continue;
-        if (actor->GetKind() == Scene::Kind::Flame || actor->GetKind() == Scene::Kind::Attack)
-            continue;
-        SceneRender::Push(*actor, p.x, p.y);
-        Visuals::SoftShadow(p.x + 10, p.y + 4, actor->GetKind() == Scene::Kind::Tree ? 32.f : 24.f, .4f, .8f);
-        SceneRender::Pop();
+        Profiler::Scope scope("shadows_cpu");
+        Profiler::GpuScope gpu("shadows");
+        for (auto actor : objects)
+        {
+            Point p = Project(actor->GetWorldPosition(), actor->GetWorldElevation());
+            if (p.x < -100 || p.x > frame.width + 100 || p.y < -60 || p.y > frame.height + 140)
+                continue;
+            if (actor->GetKind() == Scene::Kind::Flame || actor->GetKind() == Scene::Kind::Attack)
+                continue;
+            SceneRender::Push(*actor, p.x, p.y);
+            Visuals::SoftShadow(p.x + 10, p.y + 4, actor->GetKind() == Scene::Kind::Tree ? 32.f : 24.f, .4f,
+                                .8f);
+            SceneRender::Pop();
+        }
+        RenderBatch::Flush();
     }
+    Profiler::Scope objectsScope("objects_cpu");
+    Profiler::GpuScope objectsGpu("objects");
     for (auto actor : objects)
     {
         Point p = Project(actor->GetWorldPosition(), actor->GetWorldElevation());
@@ -153,11 +148,11 @@ void DrawScene(const FirstLevel::World &world)
                 GLubyte mask[128];
                 for (int i = 0; i < 128; i++)
                     mask[i] = (i / 4) % 2 ? 0xAA : 0x55;
-                glEnable(GL_POLYGON_STIPPLE);
+                RenderBatch::Enable(GL_POLYGON_STIPPLE);
                 glPolygonStipple(mask);
             }
             SceneModels::Draw(SceneModels::Kind::Tree, p.x, p.y, .85f);
-            glDisable(GL_POLYGON_STIPPLE);
+            RenderBatch::Disable(GL_POLYGON_STIPPLE);
             break;
         }
         case Scene::Kind::Rock:
@@ -207,49 +202,72 @@ void DrawScene(const FirstLevel::World &world)
             if (hero.attackAnimation > 0)
             {
                 float a = std::atan2(hero.facing.y, hero.facing.x);
-                glColor4f(.91f, .81f, .58f, hero.attackAnimation / .28f);
-                glLineWidth(3);
-                DrawStats::Begin(GL_LINE_STRIP);
+                RenderBatch::Color4f(.91f, .81f, .58f, hero.attackAnimation / .28f);
+                RenderBatch::LineWidth(3);
+                RenderBatch::Begin(GL_LINE_STRIP);
                 for (int j = 0; j <= 20; j++)
                 {
                     float angle = a - 1.1f + j * .11f;
                     Point edge = Project({actor->GetWorldPosition().x + std::cos(angle) * 1.6f,
                                           actor->GetWorldPosition().y + std::sin(angle) * 1.6f},
                                          12 + actor->GetWorldElevation());
-                    glVertex2f(edge.x, edge.y);
+                    RenderBatch::Vertex2f(edge.x, edge.y);
                 }
-                glEnd();
-                glLineWidth(1);
+                RenderBatch::End();
+                RenderBatch::LineWidth(1);
             }
             break;
         }
         }
         SceneRender::Pop();
     }
+    RenderBatch::Flush();
 }
 void Minimap(const FirstLevel::World &world)
 {
+    Profiler::Scope scope("minimap_cpu");
     float x = frame.width - 178.f, y = 222;
     Rectangle(x - 10, y - 27, 156, 183, {.025f, .05f, .045f, .93f});
     Text(x, y - 8, L"사냥터 지도", Gold);
-    DrawStats::Begin(GL_QUADS);
-    for (int cy = 0; cy < 64; cy++)
-        for (int cx = 0; cx < 64; cx++)
-        {
-            auto tile = world.Tile(cx, cy);
-            if (tile == FirstLevel::Terrain::Water)
-                glColor3f(.11f, .29f, .34f);
-            else if (world.IsWalkableCell(cx, cy))
-                glColor3f(.28f, .35f, .25f);
-            else
-                glColor3f(.07f, .14f, .10f);
-            float px = x + cx * 2.f, py = y + cy * 2.f;
-            glVertex2f(px, py);
-            glVertex2f(px + 2, py);
-            glVertex2f(px + 2, py + 2);
-            glVertex2f(px, py + 2);
-        }
-    glEnd();
+    if (!minimapTexture || minimapSeed != world.Seed())
+    {
+        Profiler::Scope buildScope("minimap_texture_build");
+        RenderBatch::Flush();
+        if (!minimapTexture)
+            glGenTextures(1, &minimapTexture);
+        minimapSeed = world.Seed();
+        std::vector<unsigned char> pixels(64 * 64 * 4, 255);
+        for (int cy = 0; cy < 64; ++cy)
+            for (int cx = 0; cx < 64; ++cx)
+            {
+                auto tile = world.Tile(cx, cy);
+                Color color = tile == FirstLevel::Terrain::Water ? Color{.11f, .29f, .34f}
+                              : world.IsWalkableCell(cx, cy)     ? Color{.28f, .35f, .25f}
+                                                                 : Color{.07f, .14f, .10f};
+                auto index = size_t(cy * 64 + cx) * 4;
+                pixels[index] = static_cast<unsigned char>(color.r * 255);
+                pixels[index + 1] = static_cast<unsigned char>(color.g * 255);
+                pixels[index + 2] = static_cast<unsigned char>(color.b * 255);
+            }
+        glBindTexture(GL_TEXTURE_2D, minimapTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    }
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, minimapTexture);
+    RenderBatch::Color4f(1, 1, 1, 1);
+    RenderBatch::Begin(GL_QUADS);
+    RenderBatch::TexCoord2f(0, 0);
+    RenderBatch::Vertex2f(x, y);
+    RenderBatch::TexCoord2f(1, 0);
+    RenderBatch::Vertex2f(x + 128, y);
+    RenderBatch::TexCoord2f(1, 1);
+    RenderBatch::Vertex2f(x + 128, y + 128);
+    RenderBatch::TexCoord2f(0, 1);
+    RenderBatch::Vertex2f(x, y + 128);
+    RenderBatch::End();
+    RenderBatch::Disable(GL_TEXTURE_2D);
     for (auto &enemy : world.Enemies())
         if (enemy.alive && world.IsActive(enemy.actor))
             Rectangle(x + (world.GetPosition(enemy.actor).x + 32) * 2 - 1,
@@ -333,22 +351,26 @@ void Draw(const FirstLevel::World &world, const Frame &current, TextRenderer tex
     renderText = text;
     DrawScene(world);
     Visuals::PostProcess(frame.width, frame.height, frame.time, frame.postEnabled);
+    Profiler::Scope hudScope("ui_cpu");
+    Profiler::GpuScope hudGpu("ui");
     for (auto actor : world.GetScene().RenderQueue(Scene::Layer::Interface))
         if (actor->GetKind() == Scene::Kind::Hud)
         {
             auto p = actor->GetWorldPosition();
-            glPushMatrix();
-            glTranslatef(p.x, p.y - actor->GetWorldElevation(), 0);
+            RenderBatch::PushMatrix();
+            RenderBatch::Translatef(p.x, p.y - actor->GetWorldElevation(), 0);
             SceneRender::Push(*actor, 0, 0, true);
             DrawHud(world);
             SceneRender::Pop();
-            glPopMatrix();
+            RenderBatch::PopMatrix();
         }
+    RenderBatch::Flush();
 }
 void Shutdown()
 {
-    if (terrainLists)
-        glDeleteLists(terrainLists, 2);
-    terrainLists = 0;
+    terrainMap.Clear();
+    if (minimapTexture)
+        glDeleteTextures(1, &minimapTexture);
+    minimapTexture = 0;
 }
 } // namespace LevelView

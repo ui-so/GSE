@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include "AssetCache.h"
+#include "Profiler.h"
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -45,6 +46,7 @@ Bytes LoadOrCreate(const std::string &name, std::size_t expectedSize, const std:
 {
     if (directory.empty())
         Initialize();
+    Profiler::Scope profile("asset_cache_load_or_generate");
     const auto path = directory / (name + "-v4.bin");
     Header header{};
     std::ifstream input(path, std::ios::binary);
@@ -57,15 +59,20 @@ Bytes LoadOrCreate(const std::string &name, std::size_t expectedSize, const std:
             input.peek() == std::char_traits<char>::eof() && Hash(data) == header.checksum)
         {
             statistics.loaded++;
+            Profiler::Add("asset_cache_read_bytes", double(data.size()));
+            Profiler::Event("asset_cache_hit", name);
             return data;
         }
     }
     input.close();
+    Profiler::Scope generation("asset_generate_and_write");
     Bytes data = generate();
     statistics.generated++;
+    Profiler::Event("asset_cache_generated", name);
     if (data.size() > MaximumBytes || (expectedSize != 0 && data.size() != expectedSize))
     {
         statistics.writeFailures++;
+        Profiler::Event("asset_cache_write_failure", name);
         return data;
     }
     std::error_code error;
@@ -73,6 +80,7 @@ Bytes LoadOrCreate(const std::string &name, std::size_t expectedSize, const std:
     if (error)
     {
         statistics.writeFailures++;
+        Profiler::Event("asset_cache_write_failure", name);
         return data;
     }
     Header output{Magic, Version, static_cast<std::uint32_t>(data.size()), Hash(data)};
@@ -86,6 +94,7 @@ Bytes LoadOrCreate(const std::string &name, std::size_t expectedSize, const std:
     if (!wrote ||
         !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         statistics.writeFailures++;
+    Profiler::Event("asset_cache_write_failure", name);
     return data;
 }
 const Statistics &Stats()

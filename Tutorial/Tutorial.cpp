@@ -7,6 +7,9 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "DrawStats.h"
+#include "RenderBatch.h"
+#include "Profiler.h"
+#include "TerrainBatch.h"
 #include <map>
 #include <queue>
 #include <string>
@@ -106,14 +109,23 @@ struct Object
     Object(V position, int objectType, float objectScale, int dataIndex);
 };
 std::vector<Object> objects;
+std::map<std::pair<int, int>, Scene::ActorId> tutorialChunks;
 Object::Object(V position, int objectType, float objectScale, int dataIndex)
     : type(objectType), scale(objectScale), id(dataIndex)
 {
     const Scene::Kind kinds[] = {Scene::Kind::Tree,   Scene::Kind::House,   Scene::Kind::Npc,
                                  Scene::Kind::Well,   Scene::Kind::Shrine,  Scene::Kind::Seed,
                                  Scene::Kind::Player, Scene::Kind::Brazier, Scene::Kind::Wildlife};
-    auto &node = tutorialScene.Create("TutorialObject", kinds[type],
-                                      type == 2 || type == 6 || type == 8 ? characterGroup : sceneryGroup);
+    auto parent = type == 2 || type == 6 || type == 8 ? characterGroup : sceneryGroup;
+    if (type == 0 || type == 1)
+    {
+        auto key = std::make_pair(int(std::floor(position.x / 16)), int(std::floor(position.y / 16)));
+        auto &chunk = tutorialChunks[key];
+        if (!chunk)
+            chunk = tutorialScene.Create("SpatialChunk", Scene::Kind::Group, sceneryGroup).GetId();
+        parent = chunk;
+    }
+    auto &node = tutorialScene.Create("TutorialObject", kinds[type], parent);
     actor = node.GetId();
     node.SetWorldPosition({position.x, position.y});
     node.SetDataIndex(int(objects.size()));
@@ -186,15 +198,15 @@ NPC npcs[] = {
 V seed{0, -13}, shrine{10, -5};
 void color(C c)
 {
-    glColor4f(c.r, c.g, c.b, c.a);
+    RenderBatch::Color4f(c.r, c.g, c.b, c.a);
 }
 void poly(std::initializer_list<V> vs, C c)
 {
     color(c);
-    DrawStats::Begin(GL_POLYGON);
+    RenderBatch::Begin(GL_POLYGON);
     for (auto v : vs)
-        glVertex2f(v.x, v.y);
-    glEnd();
+        RenderBatch::Vertex2f(v.x, v.y);
+    RenderBatch::End();
 }
 void rect(float x, float y, float w, float h, C c)
 {
@@ -203,24 +215,24 @@ void rect(float x, float y, float w, float h, C c)
 void ellipse(V p, float rx, float ry, C c)
 {
     color(c);
-    DrawStats::Begin(GL_TRIANGLE_FAN);
-    glVertex2f(p.x, p.y);
+    RenderBatch::Begin(GL_TRIANGLE_FAN);
+    RenderBatch::Vertex2f(p.x, p.y);
     for (int i = 0; i <= 48; i++)
     {
         float a = i * 6.2831853f / 48;
-        glVertex2f(p.x + cosf(a) * rx, p.y + sinf(a) * ry);
+        RenderBatch::Vertex2f(p.x + cosf(a) * rx, p.y + sinf(a) * ry);
     }
-    glEnd();
+    RenderBatch::End();
 }
 void line(V a, V b, C c, float w = 1)
 {
     color(c);
-    glLineWidth(w);
-    DrawStats::Begin(GL_LINES);
-    glVertex2f(a.x, a.y);
-    glVertex2f(b.x, b.y);
-    glEnd();
-    glLineWidth(1);
+    RenderBatch::LineWidth(w);
+    RenderBatch::Begin(GL_LINES);
+    RenderBatch::Vertex2f(a.x, a.y);
+    RenderBatch::Vertex2f(b.x, b.y);
+    RenderBatch::End();
+    RenderBatch::LineWidth(1);
 }
 V project(V p, float z = 0)
 {
@@ -230,22 +242,7 @@ V project(V p, float z = 0)
 void text(float x, float y, const std::wstring &s, C c = ink)
 {
     color(c);
-    glRasterPos2f(x, y);
-    for (wchar_t ch : s)
-    {
-        if (!glyphs.count(ch))
-        {
-            GLuint id = glGenLists(1);
-            if (!wglUseFontBitmapsW(dc, ch, 1, id))
-            {
-                glDeleteLists(id, 1);
-                continue;
-            }
-            DrawStats::RegisterBitmap(id);
-            glyphs[ch] = id;
-        }
-        DrawStats::CallList(glyphs[ch]);
-    }
+    RenderBatch::Text(dc, x, y, s);
 }
 void LevelText(float x, float y, const std::wstring &content, float r, float g, float b)
 {
@@ -283,20 +280,50 @@ bool lake(V p)
     float x = (p.x - 16) / 5.5f, y = (p.y + 7) / 8;
     return x * x + y * y < 1;
 }
+struct CollisionShape
+{
+    V position;
+    int type;
+};
+std::map<std::pair<int, int>, std::vector<CollisionShape>> collisionGrid;
+bool collisionGridReady = false;
+void RebuildCollisionGrid()
+{
+    Profiler::Scope scope("collision_grid_rebuild");
+    collisionGrid.clear();
+    for (const auto &object : objects)
+    {
+        if ((object.type != 0 && object.type != 1) || !ActorActive(object.actor))
+            continue;
+        V p = ActorPosition(object.actor);
+        collisionGrid[{int(std::floor(p.x / 4)), int(std::floor(p.y / 4))}].push_back({p, object.type});
+    }
+    collisionGridReady = true;
+}
 bool blocked(V p)
 {
+    Profiler::Add("collision_queries");
     if (p.x < MIN_X || p.x > MAX_X || p.y < MIN_Y || p.y > MAX_Y || lake(p))
         return true;
-    for (auto &o : objects)
-    {
-        if (!ActorActive(o.actor))
-            continue;
-        if (o.type == 1 && fabsf(p.x - ActorPosition(o.actor).x) < 1.55f &&
-            fabsf(p.y - ActorPosition(o.actor).y) < 1.45f)
-            return true;
-        if (o.type == 0 && length(p - ActorPosition(o.actor)) < .45f)
-            return true;
-    }
+    if (!collisionGridReady)
+        RebuildCollisionGrid();
+    int x = int(std::floor(p.x / 4)), y = int(std::floor(p.y / 4));
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx)
+        {
+            auto found = collisionGrid.find({x + dx, y + dy});
+            if (found == collisionGrid.end())
+                continue;
+            for (const auto &shape : found->second)
+            {
+                Profiler::Add("collision_candidates_tested");
+                if (shape.type == 1 && fabsf(p.x - shape.position.x) < 1.55f &&
+                    fabsf(p.y - shape.position.y) < 1.45f)
+                    return true;
+                if (shape.type == 0 && length(p - shape.position) < .45f)
+                    return true;
+            }
+        }
     return false;
 }
 struct Beast
@@ -327,7 +354,9 @@ void initWildlife()
 }
 void updateWildlife(float dt)
 {
+    Profiler::Scope scope("wildlife_simulation");
     tutorialScene.Update(dt);
+    RebuildCollisionGrid();
     for (size_t i = 0; i < beasts.size(); i++)
     {
         auto &a = beasts[i];
@@ -403,7 +432,10 @@ void animal(V p, const Beast &a)
 }
 void initWorld()
 {
+    Profiler::Scope scope("tutorial_world_generate");
+    collisionGridReady = false;
     tutorialScene.Clear();
+    tutorialChunks.clear();
     objects.clear();
     sceneryGroup = tutorialScene.Create("Scenery", Scene::Kind::Group).GetId();
     characterGroup = tutorialScene.Create("Characters", Scene::Kind::Group).GetId();
@@ -440,6 +472,7 @@ void initWorld()
     objects.push_back({{-5, 5}, 7, .75f, 1});
     objects.push_back({{-20, 18}, 7, 1, 2});
     objects.push_back({{0, 2}, 6, 1, 0});
+    RebuildCollisionGrid();
     initWildlife();
 }
 GLuint treeList = 0;
@@ -468,15 +501,15 @@ void tree(V p, float s)
     if (!treeList)
     {
         treeList = glGenLists(1);
-        DrawStats::NewList(treeList, GL_COMPILE);
+        RenderBatch::NewList(treeList, GL_COMPILE);
         treeGeometry({0, 0}, 1);
-        DrawStats::EndList();
+        RenderBatch::EndList();
     }
-    glPushMatrix();
-    glTranslatef(p.x, p.y, 0);
-    glScalef(s, s, 1);
-    DrawStats::CallList(treeList);
-    glPopMatrix();
+    RenderBatch::PushMatrix();
+    RenderBatch::Translatef(p.x, p.y, 0);
+    RenderBatch::Scalef(s, s, 1);
+    RenderBatch::CallList(treeList);
+    RenderBatch::PopMatrix();
 }
 void house(V p, int id)
 {
@@ -684,63 +717,43 @@ void update(float dt)
     }
     camera = camera + (PlayerPosition() - camera) * std::min(1.f, dt * 5);
 }
-GLuint terrainList = 0;
-V terrainOrigin{0, 0};
+TerrainBatch::Map tutorialTerrain;
 void drawWorld()
 {
+    Profiler::Scope scope("world_build_submit");
+    Profiler::GpuScope gpu("world");
     if (ActorVisible(terrainActor))
     {
-        // Static terrain batches retain world-space geometry across frames and window resizes.
-        if (!terrainList)
+        if (tutorialTerrain.Empty())
         {
-            terrainList = glGenLists(2);
-            V oldCamera = camera;
-            camera = {0, 0};
-            terrainOrigin = {width * .5f, height * .53f};
-            for (int pass = 0; pass < 2; pass++)
-            {
-                DrawStats::NewList(terrainList + pass, GL_COMPILE);
-                for (int x = -41; x < 44; x++)
-                    for (int y = -41; y < 36; y++)
-                    {
-                        bool water = lake({x + .5f, y + .5f});
-                        if (water != (pass == 1))
-                            continue;
-                        bool village = abs(x) < 8 && abs(y) < 8;
-                        bool road = abs(x) < 2 || (x >= 0 && x < 14 && abs(y + 5) < 2) || abs(y - 18) < 2 ||
-                                    abs(x + 20) < 2;
-                        int material = water ? 3 : village ? 1 : road ? 2 : 0;
-                        V a = project({float(x), float(y)}), b = project({float(x + 1), float(y)}),
-                          c = project({float(x + 1), float(y + 1)}), d = project({float(x), float(y + 1)});
-                        float xy[] = {a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y};
-                        Visuals::MaterialQuad(material, xy, .92f + hash(x / 3, y / 3) * .10f, 0);
-                    }
-                DrawStats::EndList();
-            }
-            camera = oldCamera;
+            std::vector<TerrainBatch::Tile> tiles;
+            for (int x = -41; x < 44; ++x)
+                for (int y = -41; y < 36; ++y)
+                {
+                    bool water = lake({x + .5f, y + .5f}), village = abs(x) < 8 && abs(y) < 8;
+                    bool road = abs(x) < 2 || (x >= 0 && x < 14 && abs(y + 5) < 2) || abs(y - 18) < 2 ||
+                                abs(x + 20) < 2;
+                    tiles.push_back({x, y,
+                                     water     ? 3
+                                     : village ? 1
+                                     : road    ? 2
+                                               : 0,
+                                     .92f + hash(x / 3, y / 3) * .10f});
+                }
+            tutorialTerrain.Build(tiles);
         }
         auto &terrain = *tutorialScene.Find(terrainActor);
         auto terrainPosition = terrain.GetWorldPosition();
         V pivot = project({0, 0});
-        glPushMatrix();
-        glTranslatef((terrainPosition.x - terrainPosition.y) * 31,
-                     (terrainPosition.x + terrainPosition.y) * 15.5f - terrain.GetWorldElevation(), 0);
+        RenderBatch::PushMatrix();
+        RenderBatch::Translatef((terrainPosition.x - terrainPosition.y) * 31,
+                                (terrainPosition.x + terrainPosition.y) * 15.5f - terrain.GetWorldElevation(),
+                                0);
         SceneRender::Push(terrain, pivot.x, pivot.y);
-        glPushMatrix();
-        glTranslatef(width * .5f - terrainOrigin.x - (camera.x - camera.y) * 31,
-                     height * .53f - terrainOrigin.y - (camera.x + camera.y) * 15.5f, 0);
-        DrawStats::CallList(terrainList);
-        glMatrixMode(GL_TEXTURE);
-        glPushMatrix();
-        glTranslatef(worldTime * .024f, worldTime * .012f, 0);
-        glMatrixMode(GL_MODELVIEW);
-        Visuals::BeginWater(worldTime);
-        DrawStats::CallList(terrainList + 1);
-        Visuals::EndEffect();
-        glMatrixMode(GL_TEXTURE);
-        glPopMatrix();
-        glMatrixMode(GL_MODELVIEW);
-        glPopMatrix();
+        RenderBatch::PushMatrix();
+        RenderBatch::Translatef(pivot.x, pivot.y, 0);
+        tutorialTerrain.Draw(width, height, worldTime);
+        RenderBatch::PopMatrix();
         for (int i = 0; i < 90; i++)
         {
             float a = i * 6.2831853f / 90;
@@ -760,13 +773,13 @@ void drawWorld()
             V p = project({15.f + float(i % 2) * 2, -10.f + float(i) * 2});
             float t = fmodf(worldTime * .15f + i * .2f, 1);
             color({.46f, .72f, .73f, (1 - t) * .14f});
-            DrawStats::Begin(GL_LINE_LOOP);
+            RenderBatch::Begin(GL_LINE_LOOP);
             for (int j = 0; j < 48; j++)
             {
                 float a = j * 6.2831853f / 48;
-                glVertex2f(p.x + cosf(a) * (10 + t * 50), p.y + sinf(a) * (5 + t * 20));
+                RenderBatch::Vertex2f(p.x + cosf(a) * (10 + t * 50), p.y + sinf(a) * (5 + t * 20));
             }
-            glEnd();
+            RenderBatch::End();
         }
         for (int i = 0; i < 32; i++)
         {
@@ -789,7 +802,7 @@ void drawWorld()
             }
         }
         SceneRender::Pop();
-        glPopMatrix();
+        RenderBatch::PopMatrix();
     }
     for (auto &o : objects)
     {
@@ -815,7 +828,8 @@ void drawWorld()
         Visuals::SoftShadow(p.x, p.y, r * .6f, .35f, .8f);
         SceneRender::Pop();
     }
-    for (auto actor : tutorialScene.RenderQueue(Scene::Layer::World))
+    Scene::View view{camera.x, camera.y, width, height};
+    for (auto actor : tutorialScene.RenderQueue(Scene::Layer::World, &view))
     {
         const auto &o = objects.at(actor->GetDataIndex());
         V p = project(ActorPosition(actor->GetId()), actor->GetWorldElevation());
@@ -836,14 +850,14 @@ void drawWorld()
             if (a < 3 &&
                 ActorPosition(o.actor).x + ActorPosition(o.actor).y > PlayerPosition().x + PlayerPosition().y)
             {
-                glEnable(GL_POLYGON_STIPPLE);
+                RenderBatch::Enable(GL_POLYGON_STIPPLE);
                 GLubyte mask[128];
                 for (int i = 0; i < 128; i++)
                     mask[i] = (i / 4) % 2 ? 0xAA : 0x55;
                 glPolygonStipple(mask);
             }
             tree(p, o.scale);
-            glDisable(GL_POLYGON_STIPPLE);
+            RenderBatch::Disable(GL_POLYGON_STIPPLE);
             break;
         }
         case 1:
@@ -893,9 +907,9 @@ void drawWorld()
         auto &particles = *tutorialScene.Find(particlesActor);
         auto position = particles.GetWorldPosition();
         V pivot = project({0, 0});
-        glPushMatrix();
-        glTranslatef((position.x - position.y) * 31,
-                     (position.x + position.y) * 15.5f - particles.GetWorldElevation(), 0);
+        RenderBatch::PushMatrix();
+        RenderBatch::Translatef((position.x - position.y) * 31,
+                                (position.x + position.y) * 15.5f - particles.GetWorldElevation(), 0);
         SceneRender::Push(particles, pivot.x, pivot.y);
         for (int i = 0; i < 24; i++)
         {
@@ -908,7 +922,7 @@ void drawWorld()
             ellipse({fmodf(worldTime * 8 + i * 330, width + 500.f) - 250, height * .55f + i * 65.f}, 280, 23,
                     {.49f, .64f, .59f, .022f});
         SceneRender::Pop();
-        glPopMatrix();
+        RenderBatch::PopMatrix();
     }
     if (stage < 4 && ActorVisible(markerActor))
     {
@@ -924,9 +938,11 @@ void drawWorld()
         poly({{p.x - 6, p.y + b}, {p.x + 6, p.y + b}, {p.x, p.y + 8 + b}}, gold);
         SceneRender::Pop();
     }
+    RenderBatch::Flush();
 }
 void minimap()
 {
+    Profiler::Scope scope("minimap_cpu");
     float x = width - 212.f, y = 32;
     rect(x, y, 184, 166, {.035f, .07f, .067f, .92f});
     text(x + 14, y + 23, L"주변 지도", gold);
@@ -946,16 +962,19 @@ void minimap()
 void draw()
 {
     DrawStats::Frame frameStats;
+    RenderBatch::Frame batchFrame;
+    Profiler::Scope renderScope("render_total_cpu");
     glViewport(0, 0, width, height);
     glClearColor(.035f, .065f, .065f, 1);
     glClear(GL_COLOR_BUFFER_BIT);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
+    RenderBatch::MatrixMode(GL_PROJECTION);
+    RenderBatch::LoadIdentity();
     glOrtho(0, width, height, 0, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glEnable(GL_BLEND);
+    RenderBatch::MatrixMode(GL_MODELVIEW);
+    RenderBatch::LoadIdentity();
+    RenderBatch::Enable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    Visuals::BeginScene(width, height, postEnabled);
     if (firstLevelMode)
     {
         LevelView::Draw(firstWorld,
@@ -967,9 +986,11 @@ void draw()
     Visuals::PostProcess(width, height, worldTime, postEnabled);
     if (!ActorVisible(hudActor))
         return;
+    Profiler::Scope hudScope("ui_cpu");
+    Profiler::GpuScope hudGpu("ui");
     auto hudPosition = tutorialScene.Find(hudActor)->GetWorldPosition();
-    glPushMatrix();
-    glTranslatef(hudPosition.x, hudPosition.y, 0);
+    RenderBatch::PushMatrix();
+    RenderBatch::Translatef(hudPosition.x, hudPosition.y, 0);
     SceneRender::Push(*tutorialScene.Find(hudActor), 0, 0, true);
     rect(0, 0, float(width), 6, {.67f, .51f, .28f});
     rect(24, 26, 480, 111, {.025f, .045f, .043f, .92f});
@@ -1030,7 +1051,8 @@ void draw()
         text(width * .5f - 160, height * .5f + 7, L"Esc 계속   ·   R 다시 시작   ·   Q 종료");
     }
     SceneRender::Pop();
-    glPopMatrix();
+    RenderBatch::PopMatrix();
+    RenderBatch::Flush();
 }
 void reset()
 {
@@ -1206,6 +1228,35 @@ int tests()
 {
     firstLevelMode = false;
     initWorld();
+    auto bruteBlocked = [](V point) {
+        if (point.x < MIN_X || point.x > MAX_X || point.y < MIN_Y || point.y > MAX_Y || lake(point))
+            return true;
+        for (const auto &object : objects)
+        {
+            if (!ActorActive(object.actor))
+                continue;
+            auto p = ActorPosition(object.actor);
+            if (object.type == 1 && fabsf(point.x - p.x) < 1.55f && fabsf(point.y - p.y) < 1.45f)
+                return true;
+            if (object.type == 0 && length(point - p) < .45f)
+                return true;
+        }
+        return false;
+    };
+    for (int y = -39; y < 35; y += 3)
+        for (int x = -39; x < 43; x += 3)
+            assert(blocked({float(x), float(y)}) == bruteBlocked({float(x), float(y)}));
+    auto &house = *tutorialScene.Find(objects[0].actor);
+    auto original = house.GetWorldPosition();
+    house.SetWorldPosition({12, 12});
+    RebuildCollisionGrid();
+    assert(blocked({12, 12}));
+    house.SetEnabled(false);
+    RebuildCollisionGrid();
+    assert(blocked({12, 12}) == bruteBlocked({12, 12}));
+    house.SetEnabled(true);
+    house.SetWorldPosition(original);
+    RebuildCollisionGrid();
     static_assert(sizeof(npcs) / sizeof(npcs[0]) == 16, "NPC count must be 16");
     assert((MAX_X - MIN_X) * (MAX_Y - MIN_Y) == 4 * 41 * 37);
     assert(beasts.size() == 15);
@@ -1323,6 +1374,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         okay = AssetCache::RunTests(report) && okay;
         okay = Scene::SceneGraph::RunTests(report) && okay;
         okay = DrawStats::RunTests(report) && okay;
+        okay = RenderBatch::RunTests(report) && okay;
+        okay = Profiler::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
@@ -1357,6 +1410,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     font = CreateFontW(-17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, HANGUL_CHARSET, OUT_DEFAULT_PRECIS,
                        CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
     oldFont = SelectObject(dc, font);
+    bool benchmarkMode = wcsstr(command, L"--benchmark") != nullptr;
+    bool profileEnabled = wcsstr(command, L"--no-profile") == nullptr;
+    bool profileConsole = wcsstr(command, L"--quiet-profile") == nullptr;
+    unsigned profileSeed = (benchmarkMode || wcsstr(command, L"--capture-level"))
+                               ? 42u
+                               : static_cast<unsigned>(GetTickCount64());
+    Profiler::Initialize(profileEnabled, profileConsole,
+                         (wcsstr(command, L"--tutorial") ||
+                          (wcsstr(command, L"--capture") && !wcsstr(command, L"--capture-level")))
+                             ? "tutorial"
+                             : "level1",
+                         profileSeed, width, height);
+    Profiler::Event("launch_arguments",
+                    std::string(profileConsole ? "console=on" : "console=off") +
+                        (benchmarkMode ? ";benchmark=on;fixed_step=1/60" : ";benchmark=off") +
+                        (wcsstr(command, L"--no-post") ? ";postprocess=off" : ";postprocess=on"));
+    if (!RenderBatch::Initialize())
+    {
+        Profiler::Event("renderer_initialization_failed", "VBO, instancing, or shaders unavailable");
+        Profiler::Shutdown();
+        MessageBoxW(nullptr, L"GPU 배칭 렌더러를 초기화하지 못했습니다. OpenGL 드라이버를 확인해 주세요.",
+                    L"GSE", MB_ICONERROR);
+        return 4;
+    }
     AssetCache::Initialize();
     Visuals::Initialize();
     SceneModels::Initialize();
@@ -1364,7 +1441,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     bool levelShot = wcsstr(command, L"--capture-level") != nullptr;
     bool shot = wcsstr(command, L"--capture") != nullptr;
     firstLevelMode = levelShot || (!shot && wcsstr(command, L"--tutorial") == nullptr);
-    firstWorld.Generate(levelShot ? 42u : static_cast<std::uint32_t>(GetTickCount64()));
+    firstWorld.Generate(profileSeed);
     if (firstLevelMode)
     {
         camera = {.5f, .5f};
@@ -1380,17 +1457,31 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     auto last = std::chrono::steady_clock::now();
     while (running)
     {
+        Profiler::BeginFrame();
         MSG msg;
+        auto inputStart = Profiler::Clock::now();
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+        Profiler::Time(
+            "input_dispatch",
+            std::chrono::duration<double, std::milli>(Profiler::Clock::now() - inputStart).count());
         auto now = std::chrono::steady_clock::now();
-        float dt = std::min(.05f, std::chrono::duration<float>(now - last).count());
+        float rawDt = std::chrono::duration<float>(now - last).count();
+        Profiler::Add("elapsed_since_update_ms", double(rawDt) * 1000);
+        Profiler::Add("simulation_dt_clamped", rawDt > .05f ? 1 : 0);
+        float dt = std::min(.05f, rawDt);
         last = now;
-        update(dt);
-        draw();
+        {
+            Profiler::Scope scope("game_update");
+            update(benchmarkMode ? 1.f / 60 : dt);
+        }
+        {
+            Profiler::GpuScope gpu("render_total");
+            draw();
+        }
         if (levelShot)
         {
             capture("level1-start.bmp");
@@ -1459,7 +1550,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         }
         if (bench)
         {
-            glFinish();
+            {
+                Profiler::Scope wait("benchmark_gpu_wait");
+                glFinish();
+            }
             auto end = std::chrono::steady_clock::now();
             if (benchFrames >= 20)
                 benchTotal += std::chrono::duration<double, std::milli>(end - now).count();
@@ -1471,14 +1565,35 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
                 running = false;
             }
         }
-        SwapBuffers(dc);
-        Sleep(8);
+        {
+            Profiler::Scope scope("present_wait");
+            SwapBuffers(dc);
+        }
+        if (wcsstr(command, L"--validate-render"))
+        {
+            unsigned errors = 0;
+            for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            {
+                ++errors;
+                Profiler::Event("opengl_error", std::to_string(error));
+            }
+            Profiler::Add("opengl_errors", errors);
+        }
+        Profiler::Add("viewport_width", width);
+        Profiler::Add("viewport_height", height);
+        Profiler::Add("postprocess_enabled", postEnabled ? 1 : 0);
+        Profiler::Add("map_seed", firstWorld.Seed());
+        Profiler::Add("scene_mode", firstLevelMode ? 1 : 0);
+        Profiler::Add("actor_count",
+                      double(firstLevelMode ? firstWorld.GetScene().Size() : tutorialScene.Size()));
+        Profiler::EndFrame();
     }
     if (treeList)
         glDeleteLists(treeList, 1);
-    if (terrainList)
-        glDeleteLists(terrainList, 2);
+    tutorialTerrain.Clear();
+    Profiler::Shutdown();
     LevelView::Shutdown();
+    RenderBatch::Shutdown();
     Visuals::Shutdown();
     for (auto g : glyphs)
         glDeleteLists(g.second, 1);

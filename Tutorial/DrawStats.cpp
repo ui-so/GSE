@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "DrawStats.h"
+#include "Profiler.h"
 #include <cstdio>
 #include <cstdint>
 #include <unordered_map>
@@ -94,14 +95,17 @@ Frame::Frame()
 {
     counter.Start();
 }
+void RecordDraw(std::size_t vertices, std::size_t instances)
+{
+    ++counter.calls;
+    Profiler::Add("draw_calls");
+    Profiler::Add("submitted_vertices", double(vertices * instances));
+}
 Frame::~Frame()
 {
     counter.active = false;
-    std::printf(
-        "[Frame %llu] draw_calls=%llu list_calls=%llu primitive_batches=%llu\n",
-        static_cast<unsigned long long>(++frameNumber), static_cast<unsigned long long>(counter.calls),
-        static_cast<unsigned long long>(counter.listCalls), static_cast<unsigned long long>(counter.batches));
-    std::fflush(stdout);
+    ++frameNumber;
+    Profiler::Add("render_invocations");
 }
 bool RunTests(std::string &report)
 {

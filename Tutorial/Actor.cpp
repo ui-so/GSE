@@ -60,10 +60,12 @@ Layer Actor::GetLayer() const
 }
 void Actor::SetLayer(Layer layer)
 {
+    graph_->Touch();
     layer_ = layer;
 }
 void Actor::SetLocalPosition(Position p)
 {
+    graph_->Touch();
     local_.x = p.x;
     local_.y = p.y;
 }
@@ -74,7 +76,12 @@ Position Actor::GetLocalPosition() const
 Matrix Actor::GetWorldMatrix() const
 {
     const Actor *parent = graph_->Find(parent_);
-    return parent ? parent->GetWorldMatrix() * local_ : local_;
+    if (cachedRevision_ != graph_->revision_)
+    {
+        cachedWorld_ = parent ? parent->GetWorldMatrix() * local_ : local_;
+        cachedRevision_ = graph_->revision_;
+    }
+    return cachedWorld_;
 }
 Position Actor::GetWorldPosition() const
 {
@@ -97,6 +104,7 @@ bool Actor::SetWorldPosition(Position p)
 }
 void Actor::SetLocalMatrix(const Matrix &matrix)
 {
+    graph_->Touch();
     local_ = matrix;
 }
 const Matrix &Actor::GetLocalMatrix() const
@@ -105,6 +113,7 @@ const Matrix &Actor::GetLocalMatrix() const
 }
 void Actor::SetLocalElevation(float height)
 {
+    graph_->Touch();
     elevation_ = height;
 }
 float Actor::GetWorldElevation() const
@@ -114,10 +123,12 @@ float Actor::GetWorldElevation() const
 }
 void Actor::SetEnabled(bool enabled)
 {
+    graph_->Touch();
     enabled_ = enabled;
 }
 void Actor::SetVisible(bool visible)
 {
+    graph_->Touch();
     visible_ = visible;
 }
 bool Actor::IsEnabled() const

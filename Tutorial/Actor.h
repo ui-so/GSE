@@ -94,6 +94,8 @@ class Actor
     Kind kind_;
     Layer layer_ = Layer::World;
     Matrix local_;
+    mutable Matrix cachedWorld_;
+    mutable std::uint64_t cachedRevision_ = 0;
     float elevation_ = 0;
     int dataIndex_ = -1;
     bool enabled_ = true, visible_ = true, pendingRemoval_ = false;

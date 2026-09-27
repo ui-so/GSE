@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "DrawStats.h"
+#include "RenderBatch.h"
+#include "Profiler.h"
 #include "SceneModels.h"
 #include "AssetCache.h"
 #include <array>
@@ -25,6 +27,7 @@ struct Model
     std::array<Primitive, 96> parts{};
 };
 std::array<Model, static_cast<int>(Kind::Count)> models;
+std::array<unsigned, static_cast<int>(Kind::Count)> meshIds{};
 Model Generate(Kind kind)
 {
     Model model{};
@@ -117,51 +120,44 @@ void Initialize()
         });
         if (bytes.size() == sizeof(Model))
             std::memcpy(&models[i], bytes.data(), sizeof(Model));
+        std::vector<RenderBatch::ModelVertex> vertices;
+        auto Emit = [&](const Primitive &p, float x, float y) {
+            vertices.push_back({x, y, p.r, p.g, p.b, p.a, float(p.animated)});
+        };
+        for (unsigned part = 0; part < models[i].count; ++part)
+        {
+            const auto &p = models[i].parts[part];
+            if (p.shape == 0)
+            {
+                for (int j = 0; j < 32; ++j)
+                {
+                    float a = j * 6.2831853f / 32, b = (j + 1) * 6.2831853f / 32;
+                    Emit(p, p.x, p.y);
+                    Emit(p, p.x + std::cos(a) * p.w, p.y + std::sin(a) * p.h);
+                    Emit(p, p.x + std::cos(b) * p.w, p.y + std::sin(b) * p.h);
+                }
+            }
+            else if (p.shape == 1)
+            {
+                Emit(p, p.x, p.y);
+                Emit(p, p.x + p.w, p.y);
+                Emit(p, p.x + p.w, p.y + p.h);
+                Emit(p, p.x, p.y);
+                Emit(p, p.x + p.w, p.y + p.h);
+                Emit(p, p.x, p.y + p.h);
+            }
+            else
+            {
+                Emit(p, p.x, p.y);
+                Emit(p, p.u, p.v);
+                Emit(p, p.w, p.h);
+            }
+        }
+        meshIds[i] = RenderBatch::CreateMesh(vertices);
     }
 }
 void Draw(Kind kind, float x, float y, float scale, float phase, bool flash)
 {
-    const auto &model = models[static_cast<int>(kind)];
-    glPushMatrix();
-    glTranslatef(x, y, 0);
-    glScalef(scale, scale, 1);
-    for (std::uint32_t i = 0; i < model.count && i < model.parts.size(); i++)
-    {
-        const auto &p = model.parts[i];
-        float shift = p.animated ? std::sin(phase * 9 + p.animated * 3.14159f) * 3 : 0;
-        glColor4f(flash ? 1 : p.r, flash ? .8f : p.g, flash ? .6f : p.b, p.a);
-        glPushMatrix();
-        glTranslatef(0, shift, 0);
-        if (p.shape == 0)
-        {
-            DrawStats::Begin(GL_TRIANGLE_FAN);
-            glVertex2f(p.x, p.y);
-            for (int j = 0; j <= 32; j++)
-            {
-                float a = j * 6.2831853f / 32;
-                glVertex2f(p.x + std::cos(a) * p.w, p.y + std::sin(a) * p.h);
-            }
-            glEnd();
-        }
-        else if (p.shape == 1)
-        {
-            DrawStats::Begin(GL_QUADS);
-            glVertex2f(p.x, p.y);
-            glVertex2f(p.x + p.w, p.y);
-            glVertex2f(p.x + p.w, p.y + p.h);
-            glVertex2f(p.x, p.y + p.h);
-            glEnd();
-        }
-        else if (p.shape == 2)
-        {
-            DrawStats::Begin(GL_TRIANGLES);
-            glVertex2f(p.x, p.y);
-            glVertex2f(p.u, p.v);
-            glVertex2f(p.w, p.h);
-            glEnd();
-        }
-        glPopMatrix();
-    }
-    glPopMatrix();
+    RenderBatch::Mesh(meshIds[static_cast<int>(kind)], x, y, scale, phase, flash);
 }
 } // namespace SceneModels
