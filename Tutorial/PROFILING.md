@@ -82,3 +82,10 @@ Profiler::Event("asset_stream_failure", "region_12");
 GPU 타이밍은 결과 준비 여부를 확인한 후 읽으며 일반 프레임을 glFinish로 막지 않는다. 프로세스 메모리는 Working Set/Private Bytes이며 GPU VRAM이나 개별 할당 추적이 아니다. 드라이버 내부 stall, 하드웨어 카운터, OS 스케줄링, 아직 없는 오디오·네트워크 시스템은 자동으로 측정되지 않는다. 앞으로 해당 기능을 추가할 때 위 API로 계측해야 한다.
 
 컬링 경계는 현재 모델에 맞춘 보수적인 범위이며, 새 대형 모델은 경계 정책을 확장해야 한다. 첫 레벨의 지형 충돌/길찾기는 기존 고정 격자다. GPU 배칭에는 VBO·GLSL·인스턴싱을 지원하는 OpenGL 호환 컨텍스트가 필요하다. 미지원 시 조용히 잘못 그리지 않고 초기화 실패를 표시한다.
+
+
+## 스토리 마을 계측
+
+주민 36명과 확장된 숲의 시뮬레이션은 `village_simulation`, 경로 탐색은 `npc_pathfinding`으로 분리한다. `npc_path_requests`, `npc_path_cells_visited`, `npc_path_failures`, `npc_entities_tested`, `npc_frozen`, `village_monsters_tested`는 매 프레임 0에서 시작한다. 초기 탐색 격자·이동 간선 검증은 `village_initialize`, 거래는 `village_trade`에 포함된다. 이벤트와 테스트 흐름은 `Docs/VILLAGE_TEST.md`를 참고한다.
+
+마을의 기본 140프레임 벤치마크는 초기 일상 화면 비교다. F3 사건의 집단 경로 변경은 이 짧은 실행에 포함되지 않으므로 실제 플레이 로그에서 `village_story_phase`와 경로 탐색 스파이크를 함께 확인한다. 캡처 모드의 대피 가속 갱신은 동작·이미지 검증용이며 실제 1프레임 성능으로 해석하지 않는다.

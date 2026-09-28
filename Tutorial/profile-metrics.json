@@ -428,6 +428,102 @@
       "kind": "gpu_span",
       "unit": "ms",
       "inclusive": true
+    },
+    {
+      "name": "npc_path_requests",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "npc_path_cells_visited",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "npc_path_failures",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "npc_entities_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "npc_frozen",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "village_monsters_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "village_initialize",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_simulation",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "npc_pathfinding",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_trade",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_story_phase",
+      "kind": "event",
+      "unit": "text",
+      "description": "0=daily, 1=warning, 2=evacuation, 3=stillness"
+    },
+    {
+      "name": "village_sketch_recorded",
+      "kind": "event",
+      "unit": "text",
+      "description": "landscape_with_pet or landscape_and_people"
+    },
+    {
+      "name": "village_spawn_failed",
+      "kind": "event",
+      "unit": "text",
+      "description": "prototype spawn index with no walkable fallback"
+    },
+    {
+      "name": "village_interaction",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_combat",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_loot",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_record",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
     }
   ],
   "frame_fields": {

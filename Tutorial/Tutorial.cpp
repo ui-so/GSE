@@ -16,6 +16,7 @@
 #include <vector>
 #include "Visuals.h"
 #include "FirstLevel.h"
+#include "Village.h"
 #include "LevelView.h"
 #include "AssetCache.h"
 #include "SceneModels.h"
@@ -58,7 +59,7 @@ V camera{0, 2};
 Scene::SceneGraph tutorialScene;
 Scene::ActorId tutorialPlayer = 0, terrainActor = 0, particlesActor = 0, markerActor = 0, hudActor = 0;
 Scene::ActorId sceneryGroup = 0, characterGroup = 0;
-Scene::ActorId npcActors[16]{}, seedActor = 0, shrineActor = 0;
+Scene::ActorId npcActors[Village::CitizenCount]{}, seedActor = 0, shrineActor = 0;
 V ActorPosition(Scene::ActorId id)
 {
     auto actor = tutorialScene.Find(id);
@@ -84,8 +85,8 @@ void SetPlayerPosition(V p)
     if (auto actor = tutorialScene.Find(tutorialPlayer))
         actor->SetWorldPosition({p.x, p.y});
 }
-constexpr int NPC_COUNT = 16;
-constexpr float MIN_X = -39.5f, MAX_X = 42.5f, MIN_Y = -39.5f, MAX_Y = 34.5f;
+constexpr int NPC_COUNT = Village::CitizenCount;
+constexpr float MIN_X = Village::MinX, MAX_X = Village::MaxX, MIN_Y = Village::MinY, MAX_Y = Village::MaxY;
 int facing = 0;
 float actionTime = 0;
 bool moving = false, postEnabled = true;
@@ -97,7 +98,9 @@ HWND windowHandle;
 std::map<wchar_t, GLuint> glyphs;
 std::wstring speaker, dialog;
 FirstLevel::World firstWorld;
-bool firstLevelMode = true;
+bool firstLevelMode = false;
+Village::World villageWorld;
+Scene::Position villageFacing{.7071f, .7071f};
 int pending = -1;
 int talkingNpc = -1;
 struct Object
@@ -194,10 +197,58 @@ NPC npcs[] = {
     {{-8, -7},
      L"숲지기",
      L"숲에는 사슴과 토끼, 멧돼지가 있어. 가까이 가면 놀라니 거리를 두고 지켜봐.",
-     {.3f, .5f, .3f}}};
+     {.3f, .5f, .3f}},
+    {{-12, 0},
+     L"잡화상 · 루카",
+     L"고장 난 나침반도 팔지. 항상 같은 곳을 가리켜서 믿음직해.",
+     {.6f, .4f, .2f}},
+    {{0, 10},
+     L"성직자 · 세라",
+     L"죽음을 되돌릴 수는 없어요. 살아 있는 사람의 손은 잡아 줄 수 있지요.",
+     {.6f, .6f, .7f}},
+    {{-12, 4}, L"행상 · 니코", L"짐은 싸 두었지만 이웃이 떠나기 전에는 나도 떠나지 않겠소.", {.6f, .5f, .2f}},
+    {{8, 10}, L"어머니 · 엘린", L"리오가 파란 꽃을 꺾으러 갔어요. 그 애부터 찾아야 해요.", {.6f, .3f, .4f}},
+    {{6, 10},
+     L"꽃을 좋아하는 리오",
+     L"이 꽃도 내일이면 색을 잃을까? 그림에는 파랗게 남겨 줘.",
+     {.3f, .4f, .7f}},
+    {{0, 18}, L"운송인 · 토르", L"수레에 사람부터 태우자. 짐은 나중 일이야.", {.5f, .4f, .3f}},
+    {{-8, 18}, L"농부 · 베른", L"밭을 떠나도 올해 씨앗 한 줌은 가져갈 거야.", {.4f, .5f, .2f}},
+    {{-20, 0}, L"숲 간호인 · 린", L"다친 이가 있으면 남쪽 집결지로 데려와 줘.", {.3f, .5f, .4f}},
+    {{1, -16},
+     L"묘목지기 · 하온",
+     L"이 나무는 내 가족이 심었어. 마지막까지 옆에 있고 싶어.",
+     {.4f, .5f, .3f}},
+    {{12, 4},
+     L"제빵 수습 · 미나",
+     L"스승님은 마지막 반죽까지 굽겠대. 오늘 빵값은 안 받을 거야.",
+     {.6f, .4f, .3f}},
+    {{-4, 12}, L"수도자 · 에다", L"기도보다 담요가 먼저 필요한 날도 있지요.", {.5f, .5f, .6f}},
+    {{-12, -4},
+     L"염색 장인 · 모아",
+     L"내 손의 물감은 씻기지 않는데 저 나무의 색은 사라지는구나.",
+     {.6f, .3f, .6f}},
+    {{-8, -10},
+     L"기록 보관인 · 이안",
+     L"날짜보다 이름을 적어 줘. 이곳에 누가 살았는지 남도록.",
+     {.4f, .4f, .5f}},
+    {{12, 0},
+     L"물감 상인 · 오즈",
+     L"파란 물감이 귀해. 하늘을 먼저 그리면 외상은 생각해 보지.",
+     {.3f, .4f, .7f}},
+    {{0, -20}, L"약초꾼 · 세린", L"잎맥이 멈췄어. 시든 것이 아니라 시간이 멎은 것 같아.", {.3f, .6f, .3f}},
+    {{-20, 8}, L"경비병 · 로크", L"외곽 짐승은 마을까지 쫓아오지 못하게 하겠소.", {.4f, .4f, .5f}},
+    {{24, -5}, L"어부 · 니아", L"호수가 흐르는 동안에는 물소리를 기억하고 싶어.", {.3f, .5f, .6f}},
+    {{-12, 8}, L"산파 · 로엔", L"새 생명이 온 집부터 챙기고 떠나야지.", {.5f, .5f, .3f}},
+    {{20, 18}, L"목동 · 파즈", L"염소보다 내 길 찾기가 더 나빠. 오늘은 녀석을 따라갈래.", {.4f, .5f, .3f}},
+    {{4, 14}, L"주점 주인 · 도란", L"마지막 잔은 무료야. 잔까지 가져가지는 말고.", {.6f, .4f, .3f}}};
+
 V seed{0, -13}, shrine{10, -5};
+bool desaturatedGeometry = false;
 void color(C c)
 {
+    if (desaturatedGeometry)
+        c.r = c.g = c.b = c.r * .299f + c.g * .587f + c.b * .114f;
     RenderBatch::Color4f(c.r, c.g, c.b, c.a);
 }
 void poly(std::initializer_list<V> vs, C c)
@@ -360,7 +411,8 @@ void updateWildlife(float dt)
     for (size_t i = 0; i < beasts.size(); i++)
     {
         auto &a = beasts[i];
-        if (!ActorActive(a.actor))
+        if (!ActorActive(a.actor) ||
+            villageWorld.IsFrozen({ActorPosition(a.actor).x, ActorPosition(a.actor).y}))
             continue;
         a.phase += dt;
         a.fleeing = length(ActorPosition(a.actor) - PlayerPosition()) < 3.6f;
@@ -451,18 +503,28 @@ void initWorld()
     auto &hud = tutorialScene.Create("HUD", Scene::Kind::Hud);
     hud.SetLayer(Scene::Layer::Interface);
     hudActor = hud.GetId();
-    V houses[] = {{-6, -4}, {0, -6}, {5, 5}, {-6, 7}, {7, 1}};
-    for (int i = 0; i < 5; i++)
+    V houses[] = {{-6, -4}, {0, -6}, {5, 5},   {-6, 7},  {7, 1},   {-15, -7}, {-15, 7},
+                  {-7, 14}, {8, 15}, {-24, 2}, {0, -24}, {28, -7}, {23, 22}};
+    for (int i = 0; i < int(std::size(houses)); i++)
         objects.push_back({houses[i], 1, 1, i});
-    for (int x = -38; x <= 41; x += 2)
-        for (int y = -38; y <= 33; y += 2)
+    for (int x = -79; x <= 82; x += 2)
+        for (int y = -75; y <= 70; y += 2)
         {
             V p{float(x) + hash(x, y), float(y) + hash(y, x)};
-            if ((p.y < -8 || p.x < -9 || p.y > 10 || p.x > 10) && !lake(p) && fabsf(p.x) > 1.8f &&
-                !(p.x > 1 && p.y > -7 && p.y < -3) && length(p - shrine) > 2 && hash(x, y) > .42f &&
-                fabsf(p.y - 18) > 2 && fabsf(p.x + 20) > 2)
+            bool reserved = length(p - V{0, -16}) < 7 || fabsf(p.y + 18) < 2 || fabsf(p.x - 20) < 2;
+            for (auto &npc : npcs)
+                if (length(p - npc.p) < 3)
+                    reserved = true;
+            for (auto housePosition : houses)
+                if (length(p - housePosition) < 4)
+                    reserved = true;
+            if (!reserved && (p.y < -8 || p.x < -9 || p.y > 10 || p.x > 10) && !lake(p) &&
+                fabsf(p.x) > 1.8f && !(p.x > 1 && p.y > -7 && p.y < -3) && length(p - shrine) > 2 &&
+                hash(x, y) > .42f && fabsf(p.y - 18) > 2 && fabsf(p.x + 20) > 2)
                 objects.push_back({p, 0, .75f + hash(y, x) * .65f, 0});
         }
+    objects.push_back({{3, -17}, 0, 1, 0});
+    objects.push_back({{-3, -15}, 0, 1, 0});
     for (int i = 0; i < NPC_COUNT; i++)
         objects.push_back({npcs[i].p, 2, 1, i});
     objects.push_back({{-2, 2}, 3, 1, 0});
@@ -473,7 +535,10 @@ void initWorld()
     objects.push_back({{-20, 18}, 7, 1, 2});
     objects.push_back({{0, 2}, 6, 1, 0});
     RebuildCollisionGrid();
+    objects.push_back({{0, -18}, 7, 1, 3});
     initWildlife();
+    villageWorld.Initialize(tutorialScene, std::vector<Scene::ActorId>(npcActors, npcActors + NPC_COUNT),
+                            tutorialPlayer, [](Scene::Position p) { return blocked({p.x, p.y}); });
 }
 GLuint treeList = 0;
 void treeGeometry(V p, float s)
@@ -561,8 +626,17 @@ void person(V p, C, bool hero = false, int id = 0)
 {
     Visuals::SoftShadow(p.x + 6, p.y + 3, 24, .36f, .82f);
     int action = hero ? (actionTime > 0 ? 2 : moving ? 1 : 0) : (!dialog.empty() && talkingNpc == id ? 2 : 0);
+    bool frozen = !hero && villageWorld.Citizens().size() > size_t(id) && villageWorld.Citizens()[id].frozen;
+    if (!hero && villageWorld.Citizens().size() > size_t(id) && villageWorld.Citizens()[id].walking)
+        action = 1;
+    if (hero && villageWorld.AttackTime() > 0)
+        action = 3;
+    float phase = !hero && villageWorld.Citizens().size() > size_t(id) ? villageWorld.Citizens()[id].animation
+                                                                       : worldTime;
     Visuals::Sprite(p.x, p.y, hero ? 0 : 1 + id % 3, hero ? facing : id % 4, action,
-                    worldTime * (action == 1 ? 1.6f : .65f) + id * .17f);
+                    phase * (action == 1 ? 1.6f : .65f) + id * .17f, frozen);
+    if (!hero && length(ActorPosition(npcActors[id]) - PlayerPosition()) < 4)
+        text(p.x - 45, p.y - 76, villageWorld.Behavior(id), frozen ? C{.65f, .65f, .65f} : gold);
     if (hero)
         glow(p + V{14, -16}, 28, gold);
 }
@@ -574,8 +648,9 @@ V target()
 }
 const wchar_t *objective()
 {
-    const wchar_t *s[] = {L"마라와 이야기하기", L"숲에서 숨빛 씨앗 찾기", L"호숫가 추모석에 씨앗 심기",
-                          L"마라에게 돌아가기", L"퀘스트 완료 · 남겨진 빛"};
+    const wchar_t *s[] = {L"마라와 이야기하기", L"북쪽 묘목에서 풍경 기록",
+                          L"호숫가에서 사람들의 이야기 기록", L"마라에게 여행 이야기 전하기",
+                          L"기록 완료 · 함께하지 못한 여행"};
     return s[stage];
 }
 void openDialog(const wchar_t *name, const wchar_t *msg, int next = -1)
@@ -610,7 +685,7 @@ int nearest()
 }
 void interact()
 {
-    if (!ActorActive(tutorialPlayer))
+    if (!ActorActive(tutorialPlayer) || villageWorld.IsDead())
         return;
     if (!dialog.empty())
     {
@@ -626,51 +701,42 @@ void interact()
     }
     int n = nearest();
     talkingNpc = (n >= 0 && n < NPC_COUNT) ? n : -1;
-    if (n == 0)
+    if (n >= 0 && n < NPC_COUNT)
     {
-        if (stage == 0)
-            openDialog(L"마라 · 장례지기",
-                       L"오늘은 돌아오지 못한 이들을 기억하는 날이야. 북쪽 숲의 숨빛 씨앗 하나를 동쪽 호수의 "
-                       L"추모석에 "
-                       L"심어 주겠니? 죽은 나무 곁에서도 새싹은 자란단다.",
-                       1);
-        else if (stage == 3)
-            openDialog(
-                L"마라 · 남겨진 빛",
-                L"네가 심은 씨앗이 빛났다고? 떠난 이가 돌아온 건 아닐 거야. 그래도 무언가 이어진 거겠지. "
-                L"고맙다. 자, 빵을 가져가렴. 오렌이 만든 거라… 이가 튼튼하면 좋겠구나.",
-                4);
-        else
-            openDialog(npcs[0].name, npcs[0].line);
+        villageWorld.Talk(n);
+        std::wstring message = villageWorld.Citizens()[n].frozen
+                                   ? villageWorld.Dialogue(n)
+                                   : npcs[n].line + std::wstring(L" ") + villageWorld.Dialogue(n);
+        if (n == 0 && stage == 0)
+            message = L"호수와 북쪽 묘목을 그려 보겠니? 네 그림 속 작은 동행도 함께. 사람들의 이름과 "
+                      L"이야기도 남겨 줘.";
+        if (n == 0 && stage == 3)
+            message = L"그림이 떠난 이를 돌려주지는 않아. 그래도 누가 여기 살았는지 남겨 주었구나. 고맙다.";
+        openDialog(npcs[n].name, message.c_str(), n == 0 ? (stage == 0 ? 1 : stage == 3 ? 4 : -1) : -1);
     }
-    else if (n >= 1 && n < NPC_COUNT)
-        openDialog(npcs[n].name, npcs[n].line);
     else if (n == NPC_COUNT)
     {
-        if (stage == 1)
-            openDialog(
-                L"숨빛 씨앗",
-                L"마른 뿌리 사이에서 작은 빛이 맥박친다. 따뜻하다. 죽은 나무가 남긴 것일까, 어딘가에서 온 "
-                L"것일까? 씨앗을 조심스럽게 품에 넣었다.",
-                2);
-        else
-            openDialog(L"오래된 뿌리", stage == 0
-                                           ? L"빛나는 씨앗이 보인다. 마을 사람에게 이 나무에 대해 물어보자."
-                                           : L"빛이 떠난 자리에도 가느다란 새 뿌리가 남아 있다.");
+        villageWorld.Sketch({0, -13});
+        openDialog(L"북쪽 묘목 · 풍경 기록",
+                   L"잎과 바람을 스케치했다. 그림 한쪽에는 함께 오지 못한 작은 환수가 앉아 있다. 기록은 "
+                   L"생명을 되돌리는 힘이 아니다.",
+                   stage == 1 ? 2 : -1);
     }
     else if (n == NPC_COUNT + 1)
     {
-        if (stage == 2)
-            openDialog(
-                L"이름 없는 추모석",
-                L"씨앗을 심자 잔잔한 물결이 바깥이 아닌 안쪽으로 흐른다. 낯선 숨소리. 잠깐, 호수 아래에서 "
-                L"무언가가 너를 바라본 것 같다. 마라에게 돌아가자.",
-                3);
-        else
-            openDialog(L"이름 없는 추모석",
-                       stage >= 3 ? L"작은 새싹이 흔들린다. 물 아래의 기척은 사라졌다. 답은 아직 없다."
-                                  : L"이름이 닳아 사라진 돌. 작은 홈에는 무언가를 심었던 흔적이 있다.");
+        if (stage == 2 && villageWorld.RecordCount() < 3)
+        {
+            openDialog(L"여행 수첩", L"서로 다른 주민 세 명의 이야기를 먼저 들어보자.");
+            return;
+        }
+        villageWorld.Sketch({10, -5});
+        openDialog(L"호숫가 · 여행 수첩",
+                   L"물가의 빛을 그리고 지금까지 들은 주민의 말을 적었다. 살아가는 방식도, 떠나지 못하는 "
+                   L"이유도 저마다 다르다. 반려동물의 자리는 모든 그림에 남아 있다.",
+                   stage == 2 ? 3 : -1);
     }
+    else
+        villageWorld.Pickup();
 }
 void update(float dt)
 {
@@ -695,11 +761,14 @@ void update(float dt)
     worldTime += dt;
     actionTime = std::max(0.f, actionTime - dt);
     updateWildlife(dt);
+    villageWorld.Update(dt, dialog.empty() ? -1 : talkingNpc);
     moving = false;
     if (!finished)
         elapsed += dt;
-    if (!dialog.empty())
+    if (!dialog.empty() || villageWorld.IsDead())
         return;
+    if (keys[VK_SPACE])
+        villageWorld.Attack(villageFacing);
     V d{float(keys['D'] - keys['A']), float(keys['S'] - keys['W'])};
     if (ActorActive(tutorialPlayer) && length(d) > 0)
     {
@@ -707,6 +776,7 @@ void update(float dt)
         facing = fabsf(d.x) > fabsf(d.y) ? (d.x < 0 ? 1 : 2) : (d.y < 0 ? 3 : 0);
         d = d * (1 / length(d));
         V move{(d.x + d.y) * .70710678f, (d.y - d.x) * .70710678f};
+        villageFacing = {move.x, move.y};
         move = move * (dt * (keys[VK_SHIFT] ? 5.0f : 3.1f));
         V q = PlayerPosition() + V{move.x, 0};
         if (!blocked(q))
@@ -717,7 +787,7 @@ void update(float dt)
     }
     camera = camera + (PlayerPosition() - camera) * std::min(1.f, dt * 5);
 }
-TerrainBatch::Map tutorialTerrain;
+TerrainBatch::Map tutorialTerrain, frozenTerrain;
 void drawWorld()
 {
     Profiler::Scope scope("world_build_submit");
@@ -727,12 +797,12 @@ void drawWorld()
         if (tutorialTerrain.Empty())
         {
             std::vector<TerrainBatch::Tile> tiles;
-            for (int x = -41; x < 44; ++x)
-                for (int y = -41; y < 36; ++y)
+            for (int x = -82; x < 85; ++x)
+                for (int y = -78; y < 74; ++y)
                 {
                     bool water = lake({x + .5f, y + .5f}), village = abs(x) < 8 && abs(y) < 8;
                     bool road = abs(x) < 2 || (x >= 0 && x < 14 && abs(y + 5) < 2) || abs(y - 18) < 2 ||
-                                abs(x + 20) < 2;
+                                abs(x + 20) < 2 || abs(x - 20) < 2 || abs(y + 18) < 2;
                     tiles.push_back({x, y,
                                      water     ? 3
                                      : village ? 1
@@ -753,6 +823,20 @@ void drawWorld()
         RenderBatch::PushMatrix();
         RenderBatch::Translatef(pivot.x, pivot.y, 0);
         tutorialTerrain.Draw(width, height, worldTime);
+        if (villageWorld.GetPhase() == Village::Phase::Stillness)
+        {
+            if (frozenTerrain.Empty())
+            {
+                std::vector<TerrainBatch::Tile> tiles;
+                for (int x = -6; x <= 6; ++x)
+                    for (int y = -22; y <= -10; ++y)
+                        if (villageWorld.IsFrozen({x + .5f, y + .5f}))
+                            tiles.push_back({x, y, (abs(x) < 2 || abs(y + 18) < 2) ? 6 : 4,
+                                             .92f + hash(x / 3, y / 3) * .10f});
+                frozenTerrain.Build(tiles);
+            }
+            frozenTerrain.Draw(width, height, 0);
+        }
         RenderBatch::PopMatrix();
         for (int i = 0; i < 90; i++)
         {
@@ -804,12 +888,13 @@ void drawWorld()
         SceneRender::Pop();
         RenderBatch::PopMatrix();
     }
-    for (auto &o : objects)
+    Scene::View view{camera.x, camera.y, width, height};
+    auto visibleActors = tutorialScene.RenderQueue(Scene::Layer::World, &view);
+    for (auto actor : visibleActors)
     {
-        if (!ActorActive(o.actor) || !tutorialScene.Find(o.actor)->IsVisibleInHierarchy())
+        if (actor->GetKind() != Scene::Kind::Tree && actor->GetKind() != Scene::Kind::House)
             continue;
-        if (o.type != 0 && o.type != 1)
-            continue;
+        const auto &o = objects.at(actor->GetDataIndex());
         V p = project(ActorPosition(o.actor));
         if (p.x < -200 || p.x > width + 200 || p.y < -150 || p.y > height + 100)
             continue;
@@ -828,21 +913,44 @@ void drawWorld()
         Visuals::SoftShadow(p.x, p.y, r * .6f, .35f, .8f);
         SceneRender::Pop();
     }
-    Scene::View view{camera.x, camera.y, width, height};
-    for (auto actor : tutorialScene.RenderQueue(Scene::Layer::World, &view))
+    for (auto actor : visibleActors)
     {
+        if (actor->GetKind() == Scene::Kind::Enemy)
+        {
+            const auto &m = villageWorld.Monsters().at(actor->GetDataIndex());
+            V p = project(ActorPosition(actor->GetId()));
+            if (p.x < -100 || p.x > width + 100 || p.y < -80 || p.y > height + 120)
+                continue;
+            SceneRender::Push(*actor, p.x, p.y);
+            Visuals::SoftShadow(p.x, p.y, 22, .4f, .8f);
+            SceneModels::Draw(m.kind ? SceneModels::Kind::Wraith : SceneModels::Kind::Boar, p.x, p.y, 1,
+                              worldTime, m.flash > 0);
+            rect(p.x - 18, p.y - 68, 36, 4, {.15f, .07f, .06f});
+            rect(p.x - 18, p.y - 68, float(m.health), 4, {.8f, .3f, .2f});
+            SceneRender::Pop();
+            continue;
+        }
+        if (actor->GetKind() == Scene::Kind::Loot)
+        {
+            V p = project(ActorPosition(actor->GetId()));
+            SceneRender::Push(*actor, p.x, p.y);
+            SceneModels::Draw(SceneModels::Kind::Coin, p.x, p.y);
+            SceneRender::Pop();
+            continue;
+        }
         const auto &o = objects.at(actor->GetDataIndex());
         V p = project(ActorPosition(actor->GetId()), actor->GetWorldElevation());
         if (actor->GetKind() == Scene::Kind::Flame)
         {
             SceneRender::Push(*actor, p.x, p.y);
-            Visuals::Flame(p.x, p.y, o.scale, worldTime);
+            Visuals::Flame(p.x, p.y, o.scale, worldTime, villageWorld.IsFrozen(actor->GetWorldPosition()));
             SceneRender::Pop();
             continue;
         }
         if (p.x < -150 || p.x > width + 150 || p.y < -40 || p.y > height + 200)
             continue;
         SceneRender::Push(*actor, p.x, p.y);
+        desaturatedGeometry = villageWorld.IsFrozen(actor->GetWorldPosition());
         switch (o.type)
         {
         case 0: {
@@ -856,7 +964,10 @@ void drawWorld()
                     mask[i] = (i / 4) % 2 ? 0xAA : 0x55;
                 glPolygonStipple(mask);
             }
-            tree(p, o.scale);
+            if (desaturatedGeometry)
+                treeGeometry(p, o.scale);
+            else
+                tree(p, o.scale);
             RenderBatch::Disable(GL_POLYGON_STIPPLE);
             break;
         }
@@ -875,20 +986,11 @@ void drawWorld()
             poly({{p.x - 15, p.y}, {p.x - 12, p.y - 34}, {p.x + 8, p.y - 40}, {p.x + 15, p.y - 5}},
                  {.40f, .47f, .43f});
             line(p + V{-2, -30}, p + V{-2, -10}, {.62f, .68f, .54f}, 2);
-            if (stage >= 3)
-            {
-                glow(p + V{0, -15}, 100, teal);
-                line(p, p + V{0, -22}, teal, 3);
-                ellipse(p + V{6, -16}, 7, 3, teal);
-            }
             break;
         case 5:
-            rect(p.x - 8, p.y - 15, 16, 15, {.23f, .20f, .15f});
-            if (stage < 2)
-            {
-                glow(p + V{0, -19}, 65, teal);
-                ellipse(p + V{0, -19 + sinf(worldTime * 2) * 3}, 5, 7, teal);
-            }
+            line(p, p + V{0, -24}, {.3f, .24f, .15f}, 3);
+            ellipse(p + V{-6, -18}, 8, 4, {.28f, .45f, .28f});
+            ellipse(p + V{6, -24}, 8, 4, {.35f, .5f, .28f});
             break;
         case 7:
             fire(p, o.scale);
@@ -900,6 +1002,7 @@ void drawWorld()
             person(p, {.3f, .5f, .6f}, true);
             break;
         }
+        desaturatedGeometry = false;
         SceneRender::Pop();
     }
     if (ActorVisible(particlesActor))
@@ -946,7 +1049,7 @@ void minimap()
     float x = width - 212.f, y = 32;
     rect(x, y, 184, 166, {.035f, .07f, .067f, .92f});
     text(x + 14, y + 23, L"주변 지도", gold);
-    auto m = [&](V p) { return V{x + 90 + p.x * 1.8f, y + 90 + p.y * 1.45f}; };
+    auto m = [&](V p) { return V{x + 90 + p.x * .95f, y + 83 + p.y * .85f}; };
     ellipse(m({16, -7}), 10, 12, {.15f, .35f, .38f});
     for (auto &o : objects)
         if (o.type == 1 && ActorVisible(o.actor))
@@ -956,6 +1059,12 @@ void minimap()
         }
     if (stage < 4)
         ellipse(m(target()), 3, 3, gold);
+    for (auto id : npcActors)
+        if (ActorVisible(id))
+            ellipse(m(ActorPosition(id)), 1.5f, 1.5f, gold);
+    for (auto &monster : villageWorld.Monsters())
+        if (monster.health > 0)
+            ellipse(m(ActorPosition(monster.actor)), 1.5f, 1.5f, {.8f, .3f, .2f});
     ellipse(m(PlayerPosition()), 3, 3, teal);
     text(x + 11, y + 154, L"● 나   ·   ◆ 목적지");
 }
@@ -994,16 +1103,27 @@ void draw()
     SceneRender::Push(*tutorialScene.Find(hudActor), 0, 0, true);
     rect(0, 0, float(width), 6, {.67f, .51f, .28f});
     rect(24, 26, 480, 111, {.025f, .045f, .043f, .92f});
-    text(43, 54, L"잿빛 여울  ·  남겨진 빛", gold);
+    text(43, 54, L"잿빛 여울 · 함께하지 못한 여행", gold);
     text(43, 84, objective());
     int sec = int(elapsed);
     wchar_t t[100];
-    swprintf_s(t, L"튜토리얼 · %d / 4     %02d:%02d  |  예상 3–5분", std::min(stage, 4), sec / 60, sec % 60);
+    swprintf_s(t, L"여행 기록 · %d / 4     %02d:%02d  |  주민 36명", std::min(stage, 4), sec / 60, sec % 60);
     text(43, 115, t, {.49f, .61f, .56f});
+    text(42, 220, std::wstring(L"마을 상태: ") + villageWorld.PhaseName(), gold);
+    text(42, 246,
+         L"체력 " + std::to_wstring(villageWorld.Health()) + L"  동전 " +
+             std::to_wstring(villageWorld.Coins()) + L"  회복약 " + std::to_wstring(villageWorld.Potions()) +
+             L"  경험치 " + std::to_wstring(villageWorld.Experience()));
+    text(42, 272,
+         L"이야기 수집 " + std::to_wstring(villageWorld.RecordCount()) + L" / 36 · 풍경 기록 " +
+             (villageWorld.LandscapeRecorded() ? L"완료" : L"대기"));
+    wrapped(42, height - 112.f, villageWorld.Notice(), std::max(25, (width - 90) / 18));
+    if (villageWorld.IsDead())
+        text(width * .5f - 150, height * .5f, L"쓰러졌습니다 · R로 마을에서 회복", gold);
     minimap();
     rect(24, height - 62.f, width - 48.f, 40, {.025f, .045f, .043f, .92f});
     text(42, height - 36.f,
-         L"W A S D  이동     Shift  빠르게 걷기     E  대화 / 조사     Esc  일시정지   F2  후처리", ink);
+         L"WASD 이동  E 대화/획득  Space 공격  Q 회복  P 그림  F3 사건  F1 사냥터  Esc 휴식", ink);
     if (stage < 4)
     {
         V d = target() - PlayerPosition();
@@ -1035,13 +1155,13 @@ void draw()
         rect(x, y, 3, 157, gold);
         text(x + 23, y + 30, speaker, gold);
         wrapped(x + 23, y + 63, dialog, std::max(20, int((width * .76f - 46) / 18)));
-        text(x + 23, y + 140, L"[ E ] 계속", teal);
+        text(x + 23, y + 140, L"[E] 닫기   상인 [1] 구입   성직자 [2] 치료", teal);
     }
     if (finished && dialog.empty())
     {
         rect(width * .5f - 240, 185, 480, 100, {.025f, .045f, .043f, .94f});
-        text(width * .5f - 212, 217, L"남겨진 빛 · 퀘스트 완료", gold);
-        text(width * .5f - 212, 246, L"답은 아직 없지만, 작은 생명은 남았다.");
+        text(width * .5f - 212, 217, L"함께하지 못한 여행 · 기록 완료", gold);
+        text(width * .5f - 212, 246, L"풍경 곁에 사람들의 이야기를 남겼다.");
         text(width * .5f - 212, 270, L"자유롭게 둘러보거나 R 키로 다시 시작하세요.");
     }
     if (paused)
@@ -1065,7 +1185,7 @@ void reset()
         std::fill(keys, keys + 256, false);
         return;
     }
-    initWildlife();
+    initWorld();
     moving = false;
     actionTime = 0;
     facing = 0;
@@ -1182,9 +1302,28 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         else if (w == VK_F2)
             postEnabled = !postEnabled;
+        else if (w == 'R' && villageWorld.IsDead())
+        {
+            villageWorld.Respawn();
+            camera = PlayerPosition();
+        }
+        else if (w == VK_F3 && !paused)
+            villageWorld.AdvanceEvent();
+        else if (w == 'P' && !paused)
+            villageWorld.Sketch({PlayerPosition().x, PlayerPosition().y});
+        else if (w == 'Q' && !paused)
+            villageWorld.UsePotion();
+        else if (w == '1' && !paused && !dialog.empty())
+        {
+            villageWorld.Buy(talkingNpc);
+        }
+        else if (w == '2' && !paused && !dialog.empty())
+        {
+            villageWorld.Heal(talkingNpc);
+        }
         else if (w == 'E' && !paused)
             interact();
-        else if (w == 'R' && (paused || finished))
+        else if (w == 'R' && (paused || finished || villageWorld.GetPhase() == Village::Phase::Stillness))
             reset();
         else if (w == 'Q' && paused)
             running = false;
@@ -1195,7 +1334,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
 // Grid search uses the actual collision query; validates all quest sites are reachable.
 float routeDistance(V start, V goal)
 {
-    const int nx = 165, ny = 149;
+    const int nx = int((MAX_X - MIN_X) * 2) + 1, ny = int((MAX_Y - MIN_Y) * 2) + 1;
     auto point = [](int x, int y) { return V{MIN_X + x * .5f, MIN_Y + y * .5f}; };
     int sx = int(std::round((start.x - MIN_X) * 2)), sy = int(std::round((start.y - MIN_Y) * 2));
     std::vector<float> distances(nx * ny, -1);
@@ -1257,8 +1396,8 @@ int tests()
     house.SetEnabled(true);
     house.SetWorldPosition(original);
     RebuildCollisionGrid();
-    static_assert(sizeof(npcs) / sizeof(npcs[0]) == 16, "NPC count must be 16");
-    assert((MAX_X - MIN_X) * (MAX_Y - MIN_Y) == 4 * 41 * 37);
+    static_assert(sizeof(npcs) / sizeof(npcs[0]) == 36, "NPC count must be 36");
+    assert((MAX_X - MIN_X) * (MAX_Y - MIN_Y) == 16 * 41 * 37);
     assert(beasts.size() == 15);
     for (int i = 0; i < NPC_COUNT; i++)
     {
@@ -1322,6 +1461,12 @@ int tests()
     interact();
     interact();
     assert(stage == 2);
+    for (int i = 1; i <= 2; ++i)
+    {
+        SetPlayerPosition(ActorPosition(npcActors[i]));
+        interact();
+        interact();
+    }
     SetPlayerPosition(ActorPosition(shrineActor));
     interact();
     interact();
@@ -1357,10 +1502,15 @@ int tests()
     update(.1f);
     assert(length(PlayerPosition() - stationary) < .001f && elapsed > .09f);
     reset();
-    report << "PASS: 16 NPC interactions/reachability, exact 4x playable area, 15 wildlife spawns, "
+    report << "PASS: 36 NPC interactions/reachability, expanded 4x village area, 15 wildlife spawns, "
               "movement/collision/flee behavior.\n";
     report << "PASS: quest order, premature interaction, reachability, collision, pause, movement, diagonal "
               "speed, dialog lock, restart.\n";
+    std::string villageReport;
+    bool villageOkay = villageWorld.RunTests(villageReport);
+    report << villageReport;
+    report.flush();
+    assert(villageOkay);
     return 0;
 }
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
@@ -1416,12 +1566,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     unsigned profileSeed = (benchmarkMode || wcsstr(command, L"--capture-level"))
                                ? 42u
                                : static_cast<unsigned>(GetTickCount64());
-    Profiler::Initialize(profileEnabled, profileConsole,
-                         (wcsstr(command, L"--tutorial") ||
-                          (wcsstr(command, L"--capture") && !wcsstr(command, L"--capture-level")))
-                             ? "tutorial"
-                             : "level1",
-                         profileSeed, width, height);
+    Profiler::Initialize(
+        profileEnabled, profileConsole,
+        (wcsstr(command, L"--tutorial") ||
+         (!benchmarkMode && !wcsstr(command, L"--level1") && !wcsstr(command, L"--capture-level")) ||
+         (wcsstr(command, L"--capture") && !wcsstr(command, L"--capture-level")))
+            ? "tutorial"
+            : "level1",
+        profileSeed, width, height);
     Profiler::Event("launch_arguments",
                     std::string(profileConsole ? "console=on" : "console=off") +
                         (benchmarkMode ? ";benchmark=on;fixed_step=1/60" : ";benchmark=off") +
@@ -1440,7 +1592,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     initWorld();
     bool levelShot = wcsstr(command, L"--capture-level") != nullptr;
     bool shot = wcsstr(command, L"--capture") != nullptr;
-    firstLevelMode = levelShot || (!shot && wcsstr(command, L"--tutorial") == nullptr);
+    firstLevelMode = levelShot || (!shot && !wcsstr(command, L"--tutorial") &&
+                                   (benchmarkMode || wcsstr(command, L"--level1")));
     firstWorld.Generate(profileSeed);
     if (firstLevelMode)
     {
@@ -1542,6 +1695,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
             interact();
             draw();
             capture("tutorial-dialog.bmp");
+            reset();
+            villageWorld.AdvanceEvent();
+            for (int i = 0; i < 100; ++i)
+                villageWorld.Update(.1f);
+            SetPlayerPosition(ActorPosition(npcActors[16]));
+            camera = PlayerPosition();
+            interact();
+            draw();
+            capture("village-merchant.bmp");
+            dialog.clear();
+            talkingNpc = -1;
+            villageWorld.AdvanceEvent();
+            for (int i = 0; i < 550; ++i)
+                villageWorld.Update(.1f);
+            camera = {0, 18};
+            draw();
+            capture("village-evacuation.bmp");
+            villageWorld.AdvanceEvent();
+            villageWorld.Update(.1f);
+            SetPlayerPosition({0, -13});
+            camera = {0, -16};
+            draw();
+            capture("village-stillness.bmp");
+            reset();
             width = 1000;
             height = 720;
             draw();
@@ -1591,6 +1768,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     if (treeList)
         glDeleteLists(treeList, 1);
     tutorialTerrain.Clear();
+    frozenTerrain.Clear();
     Profiler::Shutdown();
     LevelView::Shutdown();
     RenderBatch::Shutdown();

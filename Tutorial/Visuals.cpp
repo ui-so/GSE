@@ -18,7 +18,7 @@ namespace Visuals
 {
 namespace
 {
-GLuint materials[4]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
+GLuint materials[8]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
 int sceneW = 0, sceneH = 0;
 using GenFramebuffersT = void(APIENTRY *)(GLsizei, GLuint *);
 using BindFramebufferT = void(APIENTRY *)(GLenum, GLuint);
@@ -296,6 +296,7 @@ void main(){
   float shape=(1.0-smoothstep(radius*0.65,radius+0.045,x))*smoothstep(0.0,0.10,y)*(1.0-smoothstep(0.8,1.0,y));
   float core=1.0-smoothstep(0.0,radius+0.01,x);vec3 c=mix(vec3(1.0,0.16,0.025),vec3(1.0,0.85,0.28),core*(1.0-y));
   float spark=step(0.992,fract(sin(floor(uv.x*31.0)*17.13+floor((uv.y+clock*.45)*24.0)*41.71)*437.5))*smoothstep(.4,.9,y)*.45;
+  if(mode==2)c=vec3(dot(c,vec3(0.299,0.587,0.114)));
   gl_FragColor=vec4(c,max(shape,spark));
  }
 })GLSL";
@@ -378,6 +379,13 @@ bool Initialize()
             return data;
         });
         materials[type] = upload(128, 128, data, true);
+        for (size_t i = 0; i < data.size(); i += 4)
+        {
+            auto gray =
+                static_cast<unsigned char>(data[i] * .299f + data[i + 1] * .587f + data[i + 2] * .114f);
+            data[i] = data[i + 1] = data[i + 2] = gray;
+        }
+        materials[type + 4] = upload(128, 128, data, true);
     }
     std::vector<unsigned char> spriteAtlas(size_t(AW * 2) * AH * 2 * 4);
     for (int i = 0; i < 4; ++i)
@@ -391,6 +399,13 @@ bool Initialize()
             atlasPreview = pixels;
     }
     sprites[0] = upload(AW * 2, AH * 2, spriteAtlas);
+    for (size_t i = 0; i < spriteAtlas.size(); i += 4)
+    {
+        auto gray = static_cast<unsigned char>(spriteAtlas[i] * .299f + spriteAtlas[i + 1] * .587f +
+                                               spriteAtlas[i + 2] * .114f);
+        spriteAtlas[i] = spriteAtlas[i + 1] = spriteAtlas[i + 2] = gray;
+    }
+    sprites[1] = upload(AW * 2, AH * 2, spriteAtlas);
     auto pixels = AssetCache::LoadOrCreate("shadow", 128 * 128 * 4, []() {
         std::vector<unsigned char> pixels(128 * 128 * 4);
         for (int y = 0; y < 128; y++)
@@ -450,12 +465,12 @@ void MaterialQuad(int material, const float *xy, float variation, float time)
     RenderBatch::End();
     RenderBatch::Disable(GL_TEXTURE_2D);
 }
-void Sprite(float x, float y, int palette, int facing, int action, float phase)
+void Sprite(float x, float y, int palette, int facing, int action, float phase, bool frozen)
 {
     int frame = int(phase * 8) % 8;
     int row = std::clamp(action, 0, 3) * 4 + std::clamp(facing, 0, 3);
     RenderBatch::Enable(GL_TEXTURE_2D);
-    RenderBatch::BindTexture(GL_TEXTURE_2D, sprites[0]);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, sprites[frozen ? 1 : 0]);
     RenderBatch::Color4f(1, 1, 1, 1);
     quad(x - 25, y - 59, 50, 62, (frame / 8.f + (palette % 2)) * .5f,
          (row / 16.f + ((palette % 4) / 2)) * .5f, 1 / 16.f, 1 / 32.f);
@@ -605,14 +620,14 @@ bool EffectsAvailable()
 {
     return effectsProgram != 0;
 }
-void Flame(float x, float y, float scale, float time)
+void Flame(float x, float y, float scale, float time, bool frozen)
 {
     if (!effectsProgram)
         return;
     RenderBatch::Flush();
     useProgram(effectsProgram);
-    uniform1i(Uniform(effectsProgram, "mode"), 1);
-    uniform1f(Uniform(effectsProgram, "clock"), time);
+    uniform1i(Uniform(effectsProgram, "mode"), frozen ? 2 : 1);
+    uniform1f(Uniform(effectsProgram, "clock"), frozen ? 0.f : time);
     // The procedural flame consumes UV even though it does not sample this texture.
     RenderBatch::Enable(GL_TEXTURE_2D);
     RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
@@ -630,7 +645,7 @@ void Shutdown()
         deleteFramebuffers(1, &bloomFbo);
     if (bloomTexture)
         glDeleteTextures(1, &bloomTexture);
-    glDeleteTextures(4, materials);
+    glDeleteTextures(8, materials);
     glDeleteTextures(4, sprites);
     glDeleteTextures(1, &shadow);
     glDeleteTextures(1, &scene);
