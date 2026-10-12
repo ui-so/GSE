@@ -1,0 +1,548 @@
+{
+  "schema_version": 1,
+  "type": "world_snapshot",
+  "project_id": "gse",
+  "session_id": "example-session",
+  "sequence": 1,
+  "active_world_id": "ashen_shore",
+  "paused": false,
+  "worlds": [
+    {
+      "world_id": "ashen_shore",
+      "village_id": "ashen_shore",
+      "kind": "village",
+      "name": "잿빛 여울",
+      "phase": "daily",
+      "simulated": true,
+      "counts": {
+        "npc_total": 36,
+        "npc_active": 36,
+        "monster_alive": 18,
+        "monster_total": 18,
+        "wildlife": 15
+      },
+      "npcs": [
+        {
+          "entity_id": "2988",
+          "name": "장례지기 · 마라",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "stay",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -1.0,
+            "y": 0.0
+          }
+        },
+        {
+          "entity_id": "2989",
+          "name": "빵 굽는 오렌",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "share_bread",
+          "service": "baker",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 3.0,
+            "y": 2.0
+          }
+        },
+        {
+          "entity_id": "2990",
+          "name": "우물지기",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "leave",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -3.0,
+            "y": 4.0
+          }
+        },
+        {
+          "entity_id": "2991",
+          "name": "수습 약초사",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 4.0,
+            "y": -1.0
+          }
+        },
+        {
+          "entity_id": "2992",
+          "name": "늙은 파수꾼",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -4.0,
+            "y": -2.0
+          }
+        },
+        {
+          "entity_id": "2993",
+          "name": "여행 상인",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "merchant",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 1.0,
+            "y": 5.0
+          }
+        },
+        {
+          "entity_id": "2994",
+          "name": "마을 아이",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "family",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -5.0,
+            "y": 2.0
+          }
+        },
+        {
+          "entity_id": "2995",
+          "name": "종지기",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 2.0,
+            "y": -4.0
+          }
+        },
+        {
+          "entity_id": "2996",
+          "name": "대장장이 단",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -7.0,
+            "y": 0.0
+          }
+        },
+        {
+          "entity_id": "2997",
+          "name": "묘지기 연",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "stay",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -3.0,
+            "y": -5.0
+          }
+        },
+        {
+          "entity_id": "2998",
+          "name": "목수 미르",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 6.0,
+            "y": -3.0
+          }
+        },
+        {
+          "entity_id": "2999",
+          "name": "재봉사 소란",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -7.0,
+            "y": 5.0
+          }
+        },
+        {
+          "entity_id": "3000",
+          "name": "양봉가",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "leave",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 4.0,
+            "y": 8.0
+          }
+        },
+        {
+          "entity_id": "3001",
+          "name": "수습 사제",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "cleric",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -2.0,
+            "y": 8.0
+          }
+        },
+        {
+          "entity_id": "3002",
+          "name": "호수의 어부",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "family",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 8.0,
+            "y": -6.0
+          }
+        },
+        {
+          "entity_id": "3003",
+          "name": "숲지기",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -8.0,
+            "y": -7.0
+          }
+        },
+        {
+          "entity_id": "3004",
+          "name": "잡화상 · 루카",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "merchant",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -12.0,
+            "y": 0.0
+          }
+        },
+        {
+          "entity_id": "3005",
+          "name": "성직자 · 세라",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "cleric",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 0.0,
+            "y": 10.0
+          }
+        },
+        {
+          "entity_id": "3006",
+          "name": "행상 · 니코",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "merchant",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -12.0,
+            "y": 4.0
+          }
+        },
+        {
+          "entity_id": "3007",
+          "name": "어머니 · 엘린",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "family",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 8.0,
+            "y": 10.0
+          }
+        },
+        {
+          "entity_id": "3008",
+          "name": "꽃을 좋아하는 리오",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "family",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 6.0,
+            "y": 10.0
+          }
+        },
+        {
+          "entity_id": "3009",
+          "name": "운송인 · 토르",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 0.0,
+            "y": 18.0
+          }
+        },
+        {
+          "entity_id": "3010",
+          "name": "농부 · 베른",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "leave",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -8.0,
+            "y": 18.0
+          }
+        },
+        {
+          "entity_id": "3011",
+          "name": "숲 간호인 · 린",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "entity_id": "3012",
+          "name": "묘목지기 · 하온",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "stay",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 1.0,
+            "y": -16.0
+          }
+        },
+        {
+          "entity_id": "3013",
+          "name": "제빵 수습 · 미나",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "share_bread",
+          "service": "baker",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 12.0,
+            "y": 4.0
+          }
+        },
+        {
+          "entity_id": "3014",
+          "name": "수도자 · 에다",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "cleric",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -4.0,
+            "y": 12.0
+          }
+        },
+        {
+          "entity_id": "3015",
+          "name": "염색 장인 · 모아",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -12.0,
+            "y": -4.0
+          }
+        },
+        {
+          "entity_id": "3016",
+          "name": "기록 보관인 · 이안",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "stay",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -8.0,
+            "y": -10.0
+          }
+        },
+        {
+          "entity_id": "3017",
+          "name": "물감 상인 · 오즈",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "merchant",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 12.0,
+            "y": 0.0
+          }
+        },
+        {
+          "entity_id": "3018",
+          "name": "약초꾼 · 세린",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 0.0,
+            "y": -20.0
+          }
+        },
+        {
+          "entity_id": "3019",
+          "name": "경비병 · 로크",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -20.0,
+            "y": 8.0
+          }
+        },
+        {
+          "entity_id": "3020",
+          "name": "어부 · 니아",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "leave",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 24.0,
+            "y": -5.0
+          }
+        },
+        {
+          "entity_id": "3021",
+          "name": "산파 · 로엔",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "help",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": -12.0,
+            "y": 8.0
+          }
+        },
+        {
+          "entity_id": "3022",
+          "name": "목동 · 파즈",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "family",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 20.0,
+            "y": 18.0
+          }
+        },
+        {
+          "entity_id": "3023",
+          "name": "주점 주인 · 도란",
+          "state": "idle",
+          "behavior": "일상 · 휴식",
+          "reaction": "close_shop",
+          "service": "none",
+          "active": true,
+          "recorded": false,
+          "position": {
+            "x": 4.0,
+            "y": 14.0
+          }
+        }
+      ]
+    },
+    {
+      "world_id": "first_level",
+      "village_id": "",
+      "kind": "hunting_ground",
+      "name": "첫 사냥터",
+      "phase": "hunting",
+      "simulated": false,
+      "counts": {
+        "npc_total": 0,
+        "npc_active": 0,
+        "monster_alive": 20,
+        "monster_total": 20,
+        "wildlife": 0
+      },
+      "npcs": []
+    }
+  ]
+}

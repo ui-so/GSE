@@ -524,6 +524,43 @@
       "kind": "cpu_scope",
       "unit": "ms",
       "inclusive": true
+    },
+    {
+      "name": "monitor_collect",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "monitor_serialize_enqueue",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "monitor_snapshot_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "monitor_snapshots_built",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "monitor_sent_total",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "monitor_failed_total",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "monitor_replaced_total",
+      "kind": "counter",
+      "unit": "count_or_value"
     }
   ],
   "frame_fields": {

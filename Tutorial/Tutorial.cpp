@@ -9,6 +9,7 @@
 #include "DrawStats.h"
 #include "RenderBatch.h"
 #include "Profiler.h"
+#include "Monitor.h"
 #include "TerrainBatch.h"
 #include <map>
 #include <queue>
@@ -1513,6 +1514,58 @@ int tests()
     assert(villageOkay);
     return 0;
 }
+void PublishMonitoring()
+{
+    Profiler::Scope scope("monitor_collect");
+    const char *phases[] = {"daily", "warning", "evacuation", "stillness"};
+    const char *reactions[] = {"leave", "family", "stay", "help", "close_shop", "share_bread"};
+    const char *services[] = {"none", "merchant", "cleric", "baker"};
+    Monitor::Region village;
+    village.id = "ashen_shore";
+    village.kind = "village";
+    village.name = L"잿빛 여울";
+    village.phase = phases[int(villageWorld.GetPhase())];
+    village.simulated = !firstLevelMode && !paused && active && !villageWorld.IsDead();
+    village.monstersTotal = int(villageWorld.Monsters().size());
+    for (const auto &monster : villageWorld.Monsters())
+        if (monster.health > 0 && ActorActive(monster.actor))
+            ++village.monstersAlive;
+    for (const auto &beast : beasts)
+        if (ActorActive(beast.actor))
+            ++village.wildlife;
+    for (size_t i = 0; i < villageWorld.Citizens().size(); ++i)
+    {
+        const auto &citizen = villageWorld.Citizens()[i];
+        Monitor::Npc npc;
+        npc.actor = citizen.actor;
+        npc.name = npcs[i].name;
+        auto position = ActorPosition(citizen.actor);
+        npc.x = position.x;
+        npc.y = position.y;
+        npc.active = ActorActive(citizen.actor);
+        npc.recorded = citizen.recorded;
+        npc.reaction = reactions[int(citizen.reaction)];
+        npc.service = services[int(citizen.service)];
+        npc.state = !npc.active                                                  ? "inactive"
+                    : citizen.frozen                                             ? "frozen"
+                    : !firstLevelMode && !dialog.empty() && talkingNpc == int(i) ? "talking"
+                    : citizen.walking                                            ? "walking"
+                                                                                 : "idle";
+        npc.behavior = villageWorld.Behavior(int(i));
+        village.npcs.push_back(std::move(npc));
+    }
+    Monitor::Region hunting;
+    hunting.id = "first_level";
+    hunting.kind = "hunting_ground";
+    hunting.name = L"첫 사냥터";
+    hunting.phase = firstWorld.IsComplete() ? "complete" : "hunting";
+    hunting.simulated = firstLevelMode && !paused && active && !firstWorld.IsDead();
+    hunting.monstersTotal = int(firstWorld.Enemies().size());
+    for (const auto &enemy : firstWorld.Enemies())
+        if (enemy.alive && firstWorld.IsActive(enemy.actor))
+            ++hunting.monstersAlive;
+    Monitor::Publish({village, hunting}, firstLevelMode ? hunting.id : village.id, paused);
+}
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
 {
     if (wcsstr(command, L"--self-test"))
@@ -1526,9 +1579,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         okay = DrawStats::RunTests(report) && okay;
         okay = RenderBatch::RunTests(report) && okay;
         okay = Profiler::RunTests(report) && okay;
+        okay = Monitor::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
+    }
+    if (wcsstr(command, L"--monitor-test"))
+    {
+        initWorld();
+        firstWorld.Generate(42);
+        Monitor::Initialize(true);
+        for (int i = 0; i < 10; ++i)
+        {
+            if (i == 2 || i == 4 || i == 6)
+                villageWorld.AdvanceEvent();
+            if (i == 8)
+                firstLevelMode = true;
+            villageWorld.Update(.1f);
+            PublishMonitoring();
+            Sleep(600);
+        }
+        Monitor::Shutdown();
+        return 0;
     }
     DrawStats::InitializeConsole(wcsstr(command, L"--capture") || wcsstr(command, L"--benchmark"));
     WNDCLASSW wc{};
@@ -1599,6 +1671,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     {
         camera = {.5f, .5f};
     }
+    Monitor::Initialize(!wcsstr(command, L"--no-monitor") && !shot &&
+                        (!benchmarkMode || wcsstr(command, L"--monitor")));
     ShowWindow(windowHandle, shot ? SW_HIDE : SW_SHOW);
     if (wcsstr(command, L"--no-post"))
         postEnabled = false;
@@ -1763,12 +1837,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         Profiler::Add("scene_mode", firstLevelMode ? 1 : 0);
         Profiler::Add("actor_count",
                       double(firstLevelMode ? firstWorld.GetScene().Size() : tutorialScene.Size()));
+        if (Monitor::Due())
+            PublishMonitoring();
         Profiler::EndFrame();
     }
     if (treeList)
         glDeleteLists(treeList, 1);
     tutorialTerrain.Clear();
     frozenTerrain.Clear();
+    Monitor::Shutdown();
     Profiler::Shutdown();
     LevelView::Shutdown();
     RenderBatch::Shutdown();

@@ -89,3 +89,12 @@ GPU 타이밍은 결과 준비 여부를 확인한 후 읽으며 일반 프레�
 주민 36명과 확장된 숲의 시뮬레이션은 `village_simulation`, 경로 탐색은 `npc_pathfinding`으로 분리한다. `npc_path_requests`, `npc_path_cells_visited`, `npc_path_failures`, `npc_entities_tested`, `npc_frozen`, `village_monsters_tested`는 매 프레임 0에서 시작한다. 초기 탐색 격자·이동 간선 검증은 `village_initialize`, 거래는 `village_trade`에 포함된다. 이벤트와 테스트 흐름은 `Docs/VILLAGE_TEST.md`를 참고한다.
 
 마을의 기본 140프레임 벤치마크는 초기 일상 화면 비교다. F3 사건의 집단 경로 변경은 이 짧은 실행에 포함되지 않으므로 실제 플레이 로그에서 `village_story_phase`와 경로 탐색 스파이크를 함께 확인한다. 캡처 모드의 대피 가속 갱신은 동작·이미지 검증용이며 실제 1프레임 성능으로 해석하지 않는다.
+
+
+## 로컬 상태 모니터링
+
+일반 게임 실행은 500ms 간격으로 `Monitor/server.py`에 JSON 스냅샷을 전송한다. `--no-monitor`로 끌 수 있다. 벤치마크와 캡처는 기본 비활성화이며 벤치마크에 `--monitor`를 추가하면 비용을 비교할 수 있다.
+
+`monitor_collect`는 Actor 상태 복사와 메시지 준비의 inclusive CPU 시간이다. 그 안의 `monitor_serialize_enqueue`는 UTF-8 JSON 직렬화와 최신 메시지 슬롯 갱신 비용이다. `monitor_snapshot_bytes`, `monitor_snapshots_built`는 해당 프레임의 제출량이다. `monitor_sent_total`/`monitor_failed_total`/`monitor_replaced_total`은 세션 누적 전송 성공/실패/미전송 메시지 교체 횟수로 매 프레임 델타가 아니다. 조건부 지표가 없는 프레임은 0회 제출이다.
+
+HTTP 전송은 전용 스레드에서 수행한다. 미전송 슬롯은 1개이며 밀리면 최신 스냅샷으로 교체한다. 서버를 실행하지 않아도 게임은 계속 진행하며 다음 제출 때 재시도한다. 네트워크 전송 시간은 CPU Scope에 포함되지 않는다. 자세한 JSON 계약과 월드 활성 상태 해석은 `Monitor/README.md`를 따른다.

@@ -1,3 +1,5 @@
+로컬 HTML 모니터링: [실행 및 JSON 메시지 안내](../Monitor/README.md). `Monitor/start.cmd`로 서버·브라우저·게임을 함께 시작합니다.
+
 Actor와 SceneGraph 구조는 [개발 안내](SCENE_GRAPH.md)를 참고하세요.
 
 현재 기본 실행은 **스토리 테스트 마을**입니다. 최신 조작·NPC 행동·검증 범위는 [마을 테스트 안내](../Docs/VILLAGE_TEST.md)를 참고하세요. 사냥터는 F1 또는 `--level1`로 실행합니다. 아래 v0.2 설명과 수치는 이전 버전의 기록이며 최신 구현 설명은 마을 안내와 PROFILING.md를 우선합니다.
