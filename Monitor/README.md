@@ -2,13 +2,15 @@
 
 ## 실행
 
-필요 환경: Windows x64, Python 3.10 이상(`python` 명령), 최신 Edge/Chrome. Python 표준 라이브러리만 사용하며 패키지 설치나 외부 CDN은 필요 없다.
+필요 환경: Windows x64, Python 3.10 이상(`python` 명령), Google Chrome. Python 표준 라이브러리만 사용하며 패키지 설치나 외부 CDN은 필요 없다.
 
 1. `Tutorial/build.cmd`로 게임을 빌드한다.
-2. `Monitor/start.cmd`를 더블 클릭한다. 로컬 수신 서버·브라우저·게임을 실행한다.
+2. `Monitor/start.cmd`를 더블 클릭한다. 로컬 수신 서버·별도의 Chrome 창·게임을 실행한다.
 3. 브라우저 주소: `http://127.0.0.1:8765/`.
 
 서버만 실행하려면 `python Monitor/server.py`. 기존 게임에 연결하려면 `Monitor/start.cmd -NoGame`. 브라우저도 열지 않으려면 `-NoBrowser`를 추가한다. 이미 같은 서버가 있으면 재사용한다. 서버가 없는 상태로 게임을 먼저 실행해도 나중에 서버를 시작하면 다시 연결된다. 실행 스크립트는 브라우저를 통한 실제 프로젝트 통합이나 외부 배포를 하지 않는다.
+
+Chrome은 PATH, 일반 설치 경로, Windows App Paths에서 자동으로 찾고 `--new-window`로 기존 창과 별도로 연다. Chrome의 일반 사용자 프로필을 사용하며 기본 브라우저 설정을 변경하지 않는다. 별도 설치 위치는 `Monitor/start.cmd -ChromePath "D:\Apps\Chrome\chrome.exe"`처럼 지정한다. Chrome을 찾지 못하면 오류를 표시하며 `-NoBrowser`로 서버·게임만 실행할 수 있다. Chrome 창을 닫아도 서버와 게임은 계속 실행된다.
 
 게임 F3으로 마을 사건을 진행하고 F1으로 사냥터를 전환한다. NPC 이름 검색, 월드·상태 필터, 원본 JSON 열기를 제공한다. Esc 일시정지나 게임 창의 포커스 상실도 시뮬레이션 중지로 표시한다. 서버는 게임과 별도 프로세스로 유지된다. 직접 실행한 서버는 Ctrl+C로 종료한다. 스크립트로 시작한 서버 PID는 `.runtime/server.pid`에 남으며 작업 관리자에서 해당 Python 프로세스를 종료할 수 있다.
 

@@ -104,6 +104,9 @@ class Store:
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+    # On Windows, SO_REUSEADDR permits two listeners on the same port and routes
+    # snapshots to an unpredictable receiver. Reuse the running server instead.
+    allow_reuse_address = False
     def __init__(self, port=8765):
         self.store = Store()
         super().__init__(('127.0.0.1', port), Handler)

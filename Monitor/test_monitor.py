@@ -21,6 +21,15 @@ def sample():
 
 
 class Tests(unittest.TestCase):
+    def test_duplicate_listener(self):
+        server = Server(0)
+        try:
+            with self.assertRaises(OSError):
+                duplicate = Server(server.server_port)
+                duplicate.server_close()
+        finally:
+            server.server_close()
+
     def test_schema(self):
         validate(sample())
         for change in [lambda s:s.update(schema_version=2),
