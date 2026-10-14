@@ -98,3 +98,14 @@ GPU 타이밍은 결과 준비 여부를 확인한 후 읽으며 일반 프레�
 `monitor_collect`는 Actor 상태 복사와 메시지 준비의 inclusive CPU 시간이다. 그 안의 `monitor_serialize_enqueue`는 UTF-8 JSON 직렬화와 최신 메시지 슬롯 갱신 비용이다. `monitor_snapshot_bytes`, `monitor_snapshots_built`는 해당 프레임의 제출량이다. `monitor_sent_total`/`monitor_failed_total`/`monitor_replaced_total`은 세션 누적 전송 성공/실패/미전송 메시지 교체 횟수로 매 프레임 델타가 아니다. 조건부 지표가 없는 프레임은 0회 제출이다.
 
 HTTP 전송은 전용 스레드에서 수행한다. 미전송 슬롯은 1개이며 밀리면 최신 스냅샷으로 교체한다. 서버를 실행하지 않아도 게임은 계속 진행하며 다음 제출 때 재시도한다. 네트워크 전송 시간은 CPU Scope에 포함되지 않는다. 자세한 JSON 계약과 월드 활성 상태 해석은 `Monitor/README.md`를 따른다.
+
+
+## 첫 장과 그림 수첩 계측
+
+`journey_update`/`journey_interaction`/`journey_record`는 목표 갱신·대화·기록의 CPU 구간이다. `journey_stage_changed`의 0~11 값은 첫 장 단계, `journey_page_unlocked`의 0~2 값은 호수/꽃길/정지 숲이다.
+
+`journal_art_load`는 시작 시 내장 PNG 디코딩과 GPU 업로드 시간이다. `journal_art_loaded`에는 페이지와 원본 크기가 기록되며 실패는 `journal_art_load_failed`로 구분한다. 세 장은 1536×1024 RGBA로 디코딩되어 약 18MiB의 텍스처 데이터가 상주한다(드라이버 내부 메모리는 제외). 파일 I/O·생성 서비스 호출은 게임 프레임마다 수행하지 않는다.
+
+`journal_ui_cpu`/GPU `journal_ui`는 수첩 표시, `journal_art_submit`는 이미지 제출이다. 이들은 기존 UI 구간에 포함되므로 합산하지 않는다. `journal_images_drawn`, `journal_open`, `journal_pages_unlocked`, `journey_stage`는 매 프레임 0에서 시작하고 해당 프레임 값을 기록한다. 수첩 중 마을 시뮬레이션은 정지하며 모니터 JSON도 정지로 보고한다.
+
+`--capture-story --quiet-profile --validate-render`는 실제 목표 순서로 첫 장을 진행하고 잠긴 페이지·세 그림·빵 대사·대피·완료·1000×720 수첩을 캡처한다. 여러 draw와 가속 시뮬레이션이 한 프레임에 포함되므로 성능 수치로 비교하지 않는다.

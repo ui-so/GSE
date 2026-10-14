@@ -561,6 +561,93 @@
       "name": "monitor_replaced_total",
       "kind": "counter",
       "unit": "count_or_value"
+    },
+    {
+      "name": "journey_update",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journey_interaction",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journey_record",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journal_art_load",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journal_art_submit",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journal_ui_cpu",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journal_images_drawn",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "journal_open",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "journal_pages_unlocked",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "journey_stage",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "journal_art_decoded_bytes",
+      "kind": "counter",
+      "unit": "bytes"
+    },
+    {
+      "name": "journal_ui",
+      "kind": "gpu_span",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "journey_stage_changed",
+      "kind": "event",
+      "unit": "text"
+    },
+    {
+      "name": "journey_page_unlocked",
+      "kind": "event",
+      "unit": "text"
+    },
+    {
+      "name": "journal_art_load_failed",
+      "kind": "event",
+      "unit": "text"
+    },
+    {
+      "name": "journal_art_loaded",
+      "kind": "event",
+      "unit": "text"
     }
   ],
   "frame_fields": {

@@ -10,6 +10,8 @@
 #include "RenderBatch.h"
 #include "Profiler.h"
 #include "Monitor.h"
+#include "Journey.h"
+#include "JournalArt.h"
 #include "TerrainBatch.h"
 #include <map>
 #include <queue>
@@ -53,7 +55,7 @@ float length(V v)
     return std::sqrt(v.x * v.x + v.y * v.y);
 }
 const C ink{.76f, .8f, .75f}, gold{.88f, .70f, .39f}, teal{.36f, .83f, .79f};
-int width = 1280, height = 800, stage = 0;
+int width = 1280, height = 800;
 float elapsed = 0, worldTime = 0;
 bool keys[256]{}, paused = false, active = true, running = true, finished = false;
 V camera{0, 2};
@@ -102,7 +104,10 @@ FirstLevel::World firstWorld;
 bool firstLevelMode = false;
 Village::World villageWorld;
 Scene::Position villageFacing{.7071f, .7071f};
-int pending = -1;
+Journey::Quest journey;
+bool journalOpen = false;
+int journalPage = 0;
+Scene::ActorId journalActor = 0, assemblyActor = 0, exitActor = 0;
 int talkingNpc = -1;
 struct Object
 {
@@ -504,6 +509,18 @@ void initWorld()
     auto &hud = tutorialScene.Create("HUD", Scene::Kind::Hud);
     hud.SetLayer(Scene::Layer::Interface);
     hudActor = hud.GetId();
+    auto &journal = tutorialScene.Create("TravelJournal", Scene::Kind::Hud);
+    journal.SetLayer(Scene::Layer::Interface);
+    journal.SetVisible(false);
+    journalActor = journal.GetId();
+    auto &assembly = tutorialScene.Create("AssemblyWaypoint", Scene::Kind::Marker, sceneryGroup);
+    assembly.SetWorldPosition({0, 18});
+    assembly.SetLayer(Scene::Layer::Effects);
+    assemblyActor = assembly.GetId();
+    auto &exit = tutorialScene.Create("SouthRoadWaypoint", Scene::Kind::Marker, sceneryGroup);
+    exit.SetWorldPosition({0, 26});
+    exit.SetLayer(Scene::Layer::Effects);
+    exitActor = exit.GetId();
     V houses[] = {{-6, -4}, {0, -6}, {5, 5},   {-6, 7},  {7, 1},   {-15, -7}, {-15, 7},
                   {-7, 14}, {8, 15}, {-24, 2}, {0, -24}, {28, -7}, {23, 22}};
     for (int i = 0; i < int(std::size(houses)); i++)
@@ -641,25 +658,80 @@ void person(V p, C, bool hero = false, int id = 0)
     if (hero)
         glow(p + V{14, -16}, 28, gold);
 }
+Scene::ActorId JourneyTargetActor()
+{
+    int npc = journey.TargetNpc();
+    if (npc >= 0)
+        return npcActors[npc];
+    switch (journey.Current())
+    {
+    case Journey::Stage::RecordLake:
+        return shrineActor;
+    case Journey::Stage::RecordFlowers:
+    case Journey::Stage::RecordStillness:
+        return seedActor;
+    case Journey::Stage::WatchEvacuation:
+        return assemblyActor;
+    case Journey::Stage::LeaveVillage:
+        return exitActor;
+    default:
+        return tutorialPlayer;
+    }
+}
 V target()
 {
-    return stage == 0 || stage >= 3 ? ActorPosition(npcActors[0])
-           : stage == 1             ? ActorPosition(seedActor)
-                                    : ActorPosition(shrineActor);
+    return ActorPosition(JourneyTargetActor());
 }
 const wchar_t *objective()
 {
-    const wchar_t *s[] = {L"마라와 이야기하기", L"북쪽 묘목에서 풍경 기록",
-                          L"호숫가에서 사람들의 이야기 기록", L"마라에게 여행 이야기 전하기",
-                          L"기록 완료 · 함께하지 못한 여행"};
-    return s[stage];
+    return journey.Objective();
 }
-void openDialog(const wchar_t *name, const wchar_t *msg, int next = -1)
+void openDialog(const wchar_t *name, const wchar_t *msg)
 {
     actionTime = 1.2f;
     speaker = name;
     dialog = msg;
-    pending = next;
+}
+void CloseJournal()
+{
+    journalOpen = false;
+    if (auto actor = tutorialScene.Find(journalActor))
+        actor->SetVisible(false);
+    std::fill(keys, keys + 256, false);
+}
+void OpenJournal(int page)
+{
+    journalPage = std::clamp(page, 0, 2);
+    journalOpen = true;
+    if (auto actor = tutorialScene.Find(journalActor))
+        actor->SetVisible(true);
+    moving = false;
+    std::fill(keys, keys + 256, false);
+}
+void SyncJourneyPhase()
+{
+    while (villageWorld.GetPhase() < journey.RequiredPhase())
+        villageWorld.AdvanceEvent();
+}
+void RecordLandscape()
+{
+    if (villageWorld.IsDead())
+        return;
+    V p = PlayerPosition();
+    int page = -1;
+    if (ActorActive(shrineActor) && length(p - ActorPosition(shrineActor)) < 2.6f)
+        page = journey.Record(Journey::Site::Lake, villageWorld.GetPhase());
+    else if (ActorActive(seedActor) && length(p - ActorPosition(seedActor)) < 2.6f)
+        page = journey.Record(journey.Current() == Journey::Stage::RecordStillness ? Journey::Site::Stillness
+                                                                                   : Journey::Site::Flowers,
+                              villageWorld.GetPhase());
+    if (page >= 0)
+    {
+        villageWorld.Sketch({p.x, p.y});
+        OpenJournal(page);
+    }
+    else
+        openDialog(L"여행 수첩", journey.Hint());
 }
 int nearest()
 {
@@ -688,54 +760,36 @@ void interact()
 {
     if (!ActorActive(tutorialPlayer) || villageWorld.IsDead())
         return;
+    if (journalOpen)
+    {
+        CloseJournal();
+        return;
+    }
     if (!dialog.empty())
     {
         dialog.clear();
-        if (pending >= 0)
-        {
-            stage = pending;
-            if (stage == 4)
-                finished = true;
-        }
-        pending = -1;
+        talkingNpc = -1;
         return;
     }
-    int n = nearest();
-    talkingNpc = (n >= 0 && n < NPC_COUNT) ? n : -1;
-    if (n >= 0 && n < NPC_COUNT)
+    int npc = nearest();
+    talkingNpc = npc >= 0 && npc < NPC_COUNT ? npc : -1;
+    if (talkingNpc >= 0)
     {
-        villageWorld.Talk(n);
-        std::wstring message = villageWorld.Citizens()[n].frozen
-                                   ? villageWorld.Dialogue(n)
-                                   : npcs[n].line + std::wstring(L" ") + villageWorld.Dialogue(n);
-        if (n == 0 && stage == 0)
-            message = L"호수와 북쪽 묘목을 그려 보겠니? 네 그림 속 작은 동행도 함께. 사람들의 이름과 "
-                      L"이야기도 남겨 줘.";
-        if (n == 0 && stage == 3)
-            message = L"그림이 떠난 이를 돌려주지는 않아. 그래도 누가 여기 살았는지 남겨 주었구나. 고맙다.";
-        openDialog(npcs[n].name, message.c_str(), n == 0 ? (stage == 0 ? 1 : stage == 3 ? 4 : -1) : -1);
+        const auto &citizen = villageWorld.Citizens()[size_t(npc)];
+        auto story = journey.Dialogue(npc, villageWorld.GetPhase());
+        if (citizen.frozen)
+            story.clear();
+        villageWorld.Talk(npc);
+        journey.Talk(npc, citizen.frozen, villageWorld.GetPhase());
+        std::wstring message =
+            story.empty()
+                ? (citizen.frozen ? villageWorld.Dialogue(npc)
+                                  : std::wstring(npcs[npc].line) + L" " + villageWorld.Dialogue(npc))
+                : story;
+        openDialog(npcs[npc].name, message.c_str());
     }
-    else if (n == NPC_COUNT)
-    {
-        villageWorld.Sketch({0, -13});
-        openDialog(L"북쪽 묘목 · 풍경 기록",
-                   L"잎과 바람을 스케치했다. 그림 한쪽에는 함께 오지 못한 작은 환수가 앉아 있다. 기록은 "
-                   L"생명을 되돌리는 힘이 아니다.",
-                   stage == 1 ? 2 : -1);
-    }
-    else if (n == NPC_COUNT + 1)
-    {
-        if (stage == 2 && villageWorld.RecordCount() < 3)
-        {
-            openDialog(L"여행 수첩", L"서로 다른 주민 세 명의 이야기를 먼저 들어보자.");
-            return;
-        }
-        villageWorld.Sketch({10, -5});
-        openDialog(L"호숫가 · 여행 수첩",
-                   L"물가의 빛을 그리고 지금까지 들은 주민의 말을 적었다. 살아가는 방식도, 떠나지 못하는 "
-                   L"이유도 저마다 다르다. 반려동물의 자리는 모든 그림에 남아 있다.",
-                   stage == 2 ? 3 : -1);
-    }
+    else if (npc == NPC_COUNT || npc == NPC_COUNT + 1)
+        RecordLandscape();
     else
         villageWorld.Pickup();
 }
@@ -757,12 +811,20 @@ void update(float dt)
         camera = camera + (tracked - camera) * std::min(1.f, dt * 5);
         return;
     }
-    if (!active || paused)
+    if (!active || paused || journalOpen)
         return;
     worldTime += dt;
     actionTime = std::max(0.f, actionTime - dt);
     updateWildlife(dt);
     villageWorld.Update(dt, dialog.empty() ? -1 : talkingNpc);
+    if (dialog.empty() && !villageWorld.IsDead())
+    {
+        SyncJourneyPhase();
+        auto player = PlayerPosition();
+        journey.Update(dt, {player.x, player.y}, villageWorld.GetPhase());
+        SyncJourneyPhase();
+        finished = journey.Complete();
+    }
     moving = false;
     if (!finished)
         elapsed += dt;
@@ -1028,9 +1090,9 @@ void drawWorld()
         SceneRender::Pop();
         RenderBatch::PopMatrix();
     }
-    if (stage < 4 && ActorVisible(markerActor))
+    if (!journey.Complete() && ActorVisible(markerActor))
     {
-        auto targetActor = stage == 0 || stage >= 3 ? npcActors[0] : stage == 1 ? seedActor : shrineActor;
+        auto targetActor = JourneyTargetActor();
         if (tutorialScene.Find(markerActor)->GetParent() != targetActor && tutorialScene.Find(targetActor))
         {
             tutorialScene.Reparent(markerActor, targetActor, false);
@@ -1058,7 +1120,7 @@ void minimap()
             V p = m(ActorPosition(o.actor));
             rect(p.x - 3, p.y - 3, 6, 6, {.55f, .48f, .34f});
         }
-    if (stage < 4)
+    if (!journey.Complete())
         ellipse(m(target()), 3, 3, gold);
     for (auto id : npcActors)
         if (ActorVisible(id))
@@ -1068,6 +1130,51 @@ void minimap()
             ellipse(m(ActorPosition(monster.actor)), 1.5f, 1.5f, {.8f, .3f, .2f});
     ellipse(m(PlayerPosition()), 3, 3, teal);
     text(x + 11, y + 154, L"● 나   ·   ◆ 목적지");
+}
+void DrawJournal()
+{
+    if (!journalOpen || !ActorVisible(journalActor))
+        return;
+    Profiler::Scope scope("journal_ui_cpu");
+    Profiler::GpuScope gpu("journal_ui");
+    auto &actor = *tutorialScene.Find(journalActor);
+    auto position = actor.GetWorldPosition();
+    RenderBatch::PushMatrix();
+    RenderBatch::Translatef(position.x, position.y, 0);
+    SceneRender::Push(actor, 0, 0, true);
+    rect(0, 0, float(width), float(height), {.015f, .025f, .028f, .9f});
+    float x = 24, y = 24, w = width - 48.f, h = height - 48.f;
+    rect(x, y, w, h, {.075f, .09f, .09f, 1});
+    rect(x, y, w, 3, gold);
+    text(x + 28, y + 34, L"여행 수첩 · 함께하지 못한 여행", gold);
+    text(x + 28, y + 67,
+         std::to_wstring(journalPage + 1) + L" / 3  ·  " + Journey::Quest::PageTitle(journalPage), ink);
+    float imageX = x + 28, imageY = y + 103;
+    float imageW = std::min(w * .64f, (h - 188) * 1.5f), imageH = imageW / 1.5f;
+    rect(imageX - 2, imageY - 2, imageW + 4, imageH + 4, {.7f, .65f, .51f});
+    bool unlocked = journey.Unlocked(journalPage);
+    if (!unlocked || !JournalArt::Draw(journalPage, imageX, imageY, imageW, imageH))
+    {
+        rect(imageX, imageY, imageW, imageH, {.12f, .16f, .16f});
+        text(imageX + 24, imageY + imageH * .5f,
+             unlocked ? L"그림을 불러오지 못했습니다" : L"아직 기록하지 않은 풍경", gold);
+    }
+    float notesX = imageX + imageW + 24;
+    int columns = std::max(10, int((x + w - 24 - notesX) / 17));
+    text(notesX, imageY + 22, L"풍경에 남긴 말", gold);
+    wrapped(notesX, imageY + 58,
+            unlocked ? Journey::Quest::PageNote(journalPage)
+                     : L"목적지의 풍경을 P로 기록하면 이 페이지가 열립니다.",
+            columns);
+    text(notesX, y + h - 154, L"기록한 그림 " + std::to_wstring(journey.PageCount()) + L" / 3", teal);
+    wrapped(notesX, y + h - 122, L"그림 속 작은 동행은 주인공이 기억으로 그려 넣은 반려동물입니다.", columns);
+    text(x + 28, y + h - 53, L"기록은 떠난 이를 되돌리지 않는다. 그래도 누가 여기 있었는지는 남길 수 있다.",
+         ink);
+    text(x + 28, y + h - 22,
+         L"← → 그림 넘기기   1~3 페이지 선택   J / P / E / Esc 닫기 · 읽는 동안 시간 정지", gold);
+    SceneRender::Pop();
+    RenderBatch::PopMatrix();
+    RenderBatch::Flush();
 }
 void draw()
 {
@@ -1103,12 +1210,12 @@ void draw()
     RenderBatch::Translatef(hudPosition.x, hudPosition.y, 0);
     SceneRender::Push(*tutorialScene.Find(hudActor), 0, 0, true);
     rect(0, 0, float(width), 6, {.67f, .51f, .28f});
-    rect(24, 26, 480, 111, {.025f, .045f, .043f, .92f});
+    rect(24, 26, std::min(width - 270.f, 650.f), 111, {.025f, .045f, .043f, .92f});
     text(43, 54, L"잿빛 여울 · 함께하지 못한 여행", gold);
     text(43, 84, objective());
     int sec = int(elapsed);
     wchar_t t[100];
-    swprintf_s(t, L"여행 기록 · %d / 4     %02d:%02d  |  주민 36명", std::min(stage, 4), sec / 60, sec % 60);
+    swprintf_s(t, L"첫 장 · %d / 11     %02d:%02d  |  주민 36명", journey.Step(), sec / 60, sec % 60);
     text(43, 115, t, {.49f, .61f, .56f});
     text(42, 220, std::wstring(L"마을 상태: ") + villageWorld.PhaseName(), gold);
     text(42, 246,
@@ -1117,15 +1224,15 @@ void draw()
              L"  경험치 " + std::to_wstring(villageWorld.Experience()));
     text(42, 272,
          L"이야기 수집 " + std::to_wstring(villageWorld.RecordCount()) + L" / 36 · 풍경 기록 " +
-             (villageWorld.LandscapeRecorded() ? L"완료" : L"대기"));
-    wrapped(42, height - 112.f, villageWorld.Notice(), std::max(25, (width - 90) / 18));
+             (std::to_wstring(journey.PageCount()) + L" / 3"));
+    wrapped(42, height - 112.f, journey.Hint(), std::max(25, (width - 90) / 18));
     if (villageWorld.IsDead())
         text(width * .5f - 150, height * .5f, L"쓰러졌습니다 · R로 마을에서 회복", gold);
     minimap();
     rect(24, height - 62.f, width - 48.f, 40, {.025f, .045f, .043f, .92f});
     text(42, height - 36.f,
-         L"WASD 이동  E 대화/획득  Space 공격  Q 회복  P 그림  F3 사건  F1 사냥터  Esc 휴식", ink);
-    if (stage < 4)
+         L"WASD 이동  E 대화/획득  P 기록  J 수첩  Space 공격  Q 회복  F1 사냥터  Esc 휴식", ink);
+    if (!journey.Complete())
     {
         V d = target() - PlayerPosition();
         float dist = length(d);
@@ -1151,19 +1258,19 @@ void draw()
     }
     if (!dialog.empty())
     {
-        float x = width * .12f, y = height - 240.f;
-        rect(x, y, width * .76f, 157, {.025f, .043f, .041f, .98f});
-        rect(x, y, 3, 157, gold);
+        float x = width * .12f, y = height - 280.f;
+        rect(x, y, width * .76f, 202, {.025f, .043f, .041f, .98f});
+        rect(x, y, 3, 202, gold);
         text(x + 23, y + 30, speaker, gold);
         wrapped(x + 23, y + 63, dialog, std::max(20, int((width * .76f - 46) / 18)));
-        text(x + 23, y + 140, L"[E] 닫기   상인 [1] 구입   성직자 [2] 치료", teal);
+        text(x + 23, y + 181, L"[E] 닫기   상인 [1] 구입   성직자 [2] 치료", teal);
     }
     if (finished && dialog.empty())
     {
         rect(width * .5f - 240, 185, 480, 100, {.025f, .045f, .043f, .94f});
-        text(width * .5f - 212, 217, L"함께하지 못한 여행 · 기록 완료", gold);
-        text(width * .5f - 212, 246, L"풍경 곁에 사람들의 이야기를 남겼다.");
-        text(width * .5f - 212, 270, L"자유롭게 둘러보거나 R 키로 다시 시작하세요.");
+        text(width * .5f - 212, 217, L"첫 장 완료 · 남겨진 색과 사람들", gold);
+        text(width * .5f - 212, 246, L"세 그림과 주민들의 이야기를 남겼다.");
+        text(width * .5f - 212, 270, L"J로 수첩 다시 보기 · 다음 지역은 준비 중");
     }
     if (paused)
     {
@@ -1174,6 +1281,7 @@ void draw()
     SceneRender::Pop();
     RenderBatch::PopMatrix();
     RenderBatch::Flush();
+    DrawJournal();
 }
 void reset()
 {
@@ -1190,14 +1298,16 @@ void reset()
     moving = false;
     actionTime = 0;
     facing = 0;
-    stage = 0;
+    journey = Journey::Quest{};
+    CloseJournal();
+    journalPage = 0;
     elapsed = 0;
     SetPlayerPosition({0, 2});
     camera = PlayerPosition();
     finished = false;
     paused = false;
     dialog.clear();
-    pending = -1;
+    talkingNpc = -1;
     std::fill(keys, keys + 256, false);
 }
 void capture(const char *path)
@@ -1219,6 +1329,76 @@ void capture(const char *path)
     out.write((char *)&f, sizeof(f));
     out.write((char *)&b, sizeof(b));
     out.write((char *)pixels.data(), pixels.size());
+}
+void CaptureStory()
+{
+    auto talk = [&](int npc) {
+        SetPlayerPosition(ActorPosition(npcActors[npc]));
+        camera = PlayerPosition();
+        interact();
+        interact();
+        SyncJourneyPhase();
+    };
+    reset();
+    OpenJournal(0);
+    draw();
+    capture("journal-locked.bmp");
+    CloseJournal();
+    talk(0);
+    SetPlayerPosition(ActorPosition(shrineActor));
+    camera = {10, -5};
+    RecordLandscape();
+    draw();
+    capture("journal-lake.bmp");
+    CloseJournal();
+    talk(20);
+    SetPlayerPosition(ActorPosition(seedActor));
+    camera = {0, -13};
+    RecordLandscape();
+    draw();
+    capture("journal-flowers.bmp");
+    CloseJournal();
+    SyncJourneyPhase();
+    SetPlayerPosition(ActorPosition(npcActors[1]));
+    camera = PlayerPosition();
+    interact();
+    draw();
+    capture("story-last-bread.bmp");
+    interact();
+    SyncJourneyPhase();
+    talk(19);
+    talk(20);
+    talk(17);
+    SetPlayerPosition(ActorPosition(assemblyActor));
+    camera = PlayerPosition();
+    for (int i = 0; i < 40; ++i)
+        update(.1f);
+    draw();
+    capture("story-evacuation.bmp");
+    for (int i = 0; i < 20; ++i)
+        update(.1f);
+    SetPlayerPosition(ActorPosition(seedActor));
+    camera = {0, -16};
+    RecordLandscape();
+    draw();
+    capture("journal-stillness.bmp");
+    CloseJournal();
+    talk(0);
+    SetPlayerPosition(ActorPosition(exitActor));
+    camera = PlayerPosition();
+    update(.1f);
+    draw();
+    capture("story-chapter-complete.bmp");
+    OpenJournal(2);
+    width = 1000;
+    height = 720;
+    draw();
+    capture("journal-small.bmp");
+    CloseJournal();
+    std::ofstream report("story-render-report.txt");
+    report << "Chapter complete=" << journey.Complete() << " pages=" << journey.PageCount()
+           << " phase=" << int(villageWorld.GetPhase()) << " embedded PNG pages=3\n";
+    running = false;
 }
 LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
@@ -1248,6 +1428,18 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             keys[w] = true;
         if (l & (1 << 30))
             return 0;
+        if (journalOpen)
+        {
+            if (w == 'J' || w == 'P' || w == 'E' || w == VK_ESCAPE)
+                CloseJournal();
+            else if (w == VK_LEFT)
+                journalPage = (journalPage + 2) % 3;
+            else if (w == VK_RIGHT)
+                journalPage = (journalPage + 1) % 3;
+            else if (w >= '1' && w <= '3')
+                journalPage = int(w - '1');
+            return 0;
+        }
         if (w == VK_F1)
         {
             firstLevelMode = !firstLevelMode;
@@ -1310,8 +1502,10 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         else if (w == VK_F3 && !paused)
             villageWorld.AdvanceEvent();
-        else if (w == 'P' && !paused)
-            villageWorld.Sketch({PlayerPosition().x, PlayerPosition().y});
+        else if (w == 'J' && !paused && !villageWorld.IsDead())
+            OpenJournal(journalPage);
+        else if (w == 'P' && !paused && dialog.empty())
+            RecordLandscape();
         else if (w == 'Q' && !paused)
             villageWorld.UsePotion();
         else if (w == '1' && !paused && !dialog.empty())
@@ -1432,9 +1626,20 @@ int tests()
     assert(beasts[0].fleeing);
     reset();
     float route = 0;
-    V stops[] = {PlayerPosition(), ActorPosition(npcActors[0]), ActorPosition(seedActor),
-                 ActorPosition(shrineActor), ActorPosition(npcActors[0])};
-    for (int i = 0; i < 4; i++)
+    V stops[] = {PlayerPosition(),
+                 ActorPosition(npcActors[0]),
+                 ActorPosition(shrineActor),
+                 ActorPosition(npcActors[20]),
+                 ActorPosition(seedActor),
+                 ActorPosition(npcActors[1]),
+                 ActorPosition(npcActors[19]),
+                 ActorPosition(npcActors[20]),
+                 ActorPosition(npcActors[17]),
+                 ActorPosition(assemblyActor),
+                 ActorPosition(seedActor),
+                 ActorPosition(npcActors[0]),
+                 ActorPosition(exitActor)};
+    for (size_t i = 0; i + 1 < std::size(stops); i++)
     {
         float d = routeDistance(stops[i], stops[i + 1]);
         assert(d >= 0);
@@ -1449,35 +1654,50 @@ int tests()
     assert(!blocked(ActorPosition(seedActor)));
     assert(!blocked(PlayerPosition()));
     assert(blocked({16, -7}));
-    SetPlayerPosition(ActorPosition(npcActors[0]));
-    interact();
-    assert(stage == 0 && !dialog.empty());
-    interact();
-    assert(stage == 1);
-    SetPlayerPosition(ActorPosition(shrineActor));
-    interact();
-    interact();
-    assert(stage == 1);
+    auto talk = [&](int npc) {
+        SetPlayerPosition(ActorPosition(npcActors[npc]));
+        interact();
+        interact();
+        SyncJourneyPhase();
+    };
+    talk(0);
+    assert(journey.Current() == Journey::Stage::RecordLake);
     SetPlayerPosition(ActorPosition(seedActor));
-    interact();
-    interact();
-    assert(stage == 2);
-    for (int i = 1; i <= 2; ++i)
-    {
-        SetPlayerPosition(ActorPosition(npcActors[i]));
-        interact();
-        interact();
-    }
+    RecordLandscape();
+    assert(!journalOpen);
+    dialog.clear();
     SetPlayerPosition(ActorPosition(shrineActor));
-    interact();
-    interact();
-    assert(stage == 3);
-    SetPlayerPosition(ActorPosition(npcActors[0]));
-    interact();
-    interact();
-    assert(stage == 4 && finished);
+    RecordLandscape();
+    assert(journalOpen && journey.Unlocked(0));
+    V stillPlayer = PlayerPosition();
+    float stillTime = worldTime;
+    update(.1f);
+    assert(worldTime == stillTime && length(PlayerPosition() - stillPlayer) < .001f);
+    CloseJournal();
+    talk(20);
+    SetPlayerPosition(ActorPosition(seedActor));
+    RecordLandscape();
+    CloseJournal();
+    SyncJourneyPhase();
+    assert(villageWorld.GetPhase() == Village::Phase::Warning);
+    talk(1);
+    talk(19);
+    talk(20);
+    talk(17);
+    assert(villageWorld.GetPhase() == Village::Phase::Evacuation);
+    SetPlayerPosition(ActorPosition(assemblyActor));
+    for (int i = 0; i < 60; ++i)
+        update(.1f);
+    assert(villageWorld.GetPhase() == Village::Phase::Stillness);
+    SetPlayerPosition(ActorPosition(seedActor));
+    RecordLandscape();
+    CloseJournal();
+    talk(0);
+    SetPlayerPosition(ActorPosition(exitActor));
+    update(.1f);
+    assert(journey.Complete() && journey.PageCount() == 3 && finished);
     reset();
-    assert(stage == 0 && !finished && dialog.empty());
+    assert(journey.Step() == 0 && !finished && dialog.empty() && !journalOpen);
     float e = elapsed;
     paused = true;
     update(1);
@@ -1507,6 +1727,8 @@ int tests()
               "movement/collision/flee behavior.\n";
     report << "PASS: quest order, premature interaction, reachability, collision, pause, movement, diagonal "
               "speed, dialog lock, restart.\n";
+    report << "PASS: full 11-step chapter through real Actors, 3 page unlocks, notebook simulation pause and "
+              "automatic story phases.\n";
     std::string villageReport;
     bool villageOkay = villageWorld.RunTests(villageReport);
     report << villageReport;
@@ -1525,7 +1747,7 @@ void PublishMonitoring()
     village.kind = "village";
     village.name = L"잿빛 여울";
     village.phase = phases[int(villageWorld.GetPhase())];
-    village.simulated = !firstLevelMode && !paused && active && !villageWorld.IsDead();
+    village.simulated = !firstLevelMode && !paused && !journalOpen && active && !villageWorld.IsDead();
     village.monstersTotal = int(villageWorld.Monsters().size());
     for (const auto &monster : villageWorld.Monsters())
         if (monster.health > 0 && ActorActive(monster.actor))
@@ -1564,7 +1786,7 @@ void PublishMonitoring()
     for (const auto &enemy : firstWorld.Enemies())
         if (enemy.alive && firstWorld.IsActive(enemy.actor))
             ++hunting.monstersAlive;
-    Monitor::Publish({village, hunting}, firstLevelMode ? hunting.id : village.id, paused);
+    Monitor::Publish({village, hunting}, firstLevelMode ? hunting.id : village.id, paused || journalOpen);
 }
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
 {
@@ -1580,6 +1802,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         okay = RenderBatch::RunTests(report) && okay;
         okay = Profiler::RunTests(report) && okay;
         okay = Monitor::RunTests(report) && okay;
+        okay = Journey::Quest::RunTests(report) && okay;
+        okay = JournalArt::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
@@ -1661,7 +1885,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     AssetCache::Initialize();
     Visuals::Initialize();
     SceneModels::Initialize();
+    JournalArt::Initialize();
     initWorld();
+    bool storyShot = wcsstr(command, L"--capture-story") != nullptr;
     bool levelShot = wcsstr(command, L"--capture-level") != nullptr;
     bool shot = wcsstr(command, L"--capture") != nullptr;
     firstLevelMode = levelShot || (!shot && !wcsstr(command, L"--tutorial") &&
@@ -1709,7 +1935,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
             Profiler::GpuScope gpu("render_total");
             draw();
         }
-        if (levelShot)
+        if (storyShot)
+            CaptureStory();
+        else if (levelShot)
         {
             capture("level1-start.bmp");
             firstWorld.Attack();
@@ -1760,7 +1988,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
             capture("tutorial-wildlife.bmp");
             SetPlayerPosition(ActorPosition(shrineActor) + V{-1, 0});
             camera = {10, -5};
-            stage = 3;
+
             draw();
             capture("tutorial-lake.bmp");
             reset();
@@ -1833,6 +2061,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         Profiler::Add("viewport_width", width);
         Profiler::Add("viewport_height", height);
         Profiler::Add("postprocess_enabled", postEnabled ? 1 : 0);
+        Profiler::Add("journal_open", journalOpen ? 1 : 0);
+        Profiler::Add("journey_stage", journey.Step());
+        Profiler::Add("journal_pages_unlocked", journey.PageCount());
         Profiler::Add("map_seed", firstWorld.Seed());
         Profiler::Add("scene_mode", firstLevelMode ? 1 : 0);
         Profiler::Add("actor_count",
@@ -1847,6 +2078,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     frozenTerrain.Clear();
     Monitor::Shutdown();
     Profiler::Shutdown();
+    JournalArt::Shutdown();
     LevelView::Shutdown();
     RenderBatch::Shutdown();
     Visuals::Shutdown();

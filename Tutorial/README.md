@@ -1,3 +1,5 @@
+풍경 이미지 3장과 확장 퀘스트: [첫 장과 그림 수첩 안내](../Docs/JOURNEY_CHAPTER.md). P 현장 기록 · J 수첩.
+
 로컬 HTML 모니터링: [실행 및 JSON 메시지 안내](../Monitor/README.md). `Monitor/start.cmd`로 서버·브라우저·게임을 함께 시작합니다.
 
 Actor와 SceneGraph 구조는 [개발 안내](SCENE_GRAPH.md)를 참고하세요.
