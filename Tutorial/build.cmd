@@ -8,7 +8,7 @@ pushd "%~dp0"
 if not exist build mkdir build
 rc /nologo /fo build\JournalAssets.res JournalAssets.rc
 if errorlevel 1 (popd & exit /b 1)
-cl /nologo /std:c++17 /EHsc /utf-8 /W4 /WX /MT /O2 /DUNICODE /D_UNICODE Tutorial.cpp Visuals.cpp FirstLevel.cpp LevelView.cpp AssetCache.cpp SceneModels.cpp Actor.cpp SceneGraph.cpp DrawStats.cpp Profiler.cpp RenderBatch.cpp TerrainBatch.cpp Village.cpp Monitor.cpp Journey.cpp JournalArt.cpp build\JournalAssets.res /Fo:build\ /Fe:build\AshenShore.exe /link /SUBSYSTEM:WINDOWS
+cl /nologo /std:c++17 /EHsc /utf-8 /W4 /WX /MT /O2 /DUNICODE /D_UNICODE Tutorial.cpp Visuals.cpp FirstLevel.cpp LevelView.cpp AssetCache.cpp SceneModels.cpp Actor.cpp SceneGraph.cpp DrawStats.cpp Profiler.cpp RenderBatch.cpp TerrainBatch.cpp Village.cpp WorldLayout.cpp Monitor.cpp Journey.cpp JournalArt.cpp build\JournalAssets.res /Fo:build\ /Fe:build\AshenShore.exe /link /SUBSYSTEM:WINDOWS
 set "RESULT=%ERRORLEVEL%"
 popd
 exit /b %RESULT%

@@ -26,7 +26,7 @@
 <section aria-label="전체 집계" id="totals" class="totals">
 </section>
 <div class="section-title">
-<h2>월드 · 마을 상태</h2>
+<h2>구역 · 마을 상태</h2>
 <span>0.5초마다 갱신 · 마지막 관측값</span>
 </div>
 <section id="worlds" class="worlds">
@@ -35,12 +35,13 @@
 <div class="section-title">
 <h2>NPC 상태</h2>
 <div class="filters">
-<label>월드 <select id="worldFilter">
+<label>구역 <select id="worldFilter">
 <option value="">전체</option>
 </select>
 </label>
 <label>상태 <select id="stateFilter">
 <option value="">전체</option>
+<option value="courier">마을 순회자</option>
 <option value="walking">이동</option>
 <option value="idle">대기</option>
 <option value="talking">대화</option>
@@ -56,7 +57,7 @@
 <thead>
 <tr>
 <th>NPC / Actor</th>
-<th>월드 · 세션</th>
+<th>소속 마을 · 세션 / 현재 위치 → 목적지</th>
 <th>상태</th>
 <th>현재 행동</th>
 <th>사건 역할 / 서비스</th>
@@ -71,7 +72,7 @@
 <p id="rowCount" class="muted">
 </p>
 </section>
-<footer>이 화면은 관측 전용입니다. 비활성 월드는 마지막 상태를 표시하며, 월드 이동·저장 데이터 통합 방식은 아직 확정되지 않았습니다.</footer>
+<footer>분위기는 0~100의 독립적인 게임 수치입니다. 소속 주민은 마을당 20명이며 현지 인원에는 방문자가 포함됩니다. 마을 간 소문은 순회자가 광장에 도착해야 전해집니다. 비활성 구역은 마지막 관측값입니다.</footer>
 </main>
 </body>
 </html>

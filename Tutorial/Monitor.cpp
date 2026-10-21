@@ -124,7 +124,27 @@ std::string Serialize(const std::vector<Region> &regions, const std::string &act
             << ",\"phase\":" << Quote(r.phase) << ",\"simulated\":" << r.simulated
             << ",\"counts\":{\"npc_total\":" << r.npcs.size() << ",\"npc_active\":" << activeCount
             << ",\"monster_alive\":" << r.monstersAlive << ",\"monster_total\":" << r.monstersTotal
-            << ",\"wildlife\":" << r.wildlife << "},\"npcs\":[";
+            << ",\"wildlife\":" << r.wildlife << ",\"npc_present\":" << r.present
+            << ",\"respawns_total\":" << r.respawns << "},";
+        if (r.hasAtmosphere)
+        {
+            out << "\"atmosphere\":{\"mood\":" << Quote(r.mood) << ",\"calm\":" << r.calm
+                << ",\"fear\":" << r.fear << ",\"trust\":" << r.trust << ",\"hope\":" << r.hope
+                << ",\"known_rumor_mask\":" << r.rumors << ",\"walking\":" << r.walking
+                << ",\"idle\":" << r.idle << ",\"talking\":" << r.talking << ",\"frozen\":" << r.frozen
+                << ",\"deliveries\":[";
+            bool first = true;
+            for (const auto &d : r.deliveries)
+            {
+                if (!first)
+                    out << ',';
+                first = false;
+                out << "{\"carrier\":" << Quote(std::to_string(d.carrier)) << ",\"rumor\":" << d.rumor
+                    << ",\"simulation_seconds\":" << d.time << ",\"x\":" << d.x << ",\"y\":" << d.y << "}";
+            }
+            out << "]},";
+        }
+        out << "\"npcs\":[";
         bool firstNpc = true;
         for (const auto &n : r.npcs)
         {
@@ -135,7 +155,11 @@ std::string Serialize(const std::vector<Region> &regions, const std::string &act
                 << ",\"state\":" << Quote(n.state) << ",\"behavior\":" << Quote(Utf8(n.behavior))
                 << ",\"reaction\":" << Quote(n.reaction) << ",\"service\":" << Quote(n.service)
                 << ",\"active\":" << n.active << ",\"recorded\":" << n.recorded
-                << ",\"position\":{\"x\":" << n.x << ",\"y\":" << n.y << "}}";
+                << ",\"home_village\":" << Quote(n.homeVillage)
+                << ",\"current_village\":" << Quote(n.currentVillage)
+                << ",\"destination\":" << Quote(n.destination) << ",\"courier\":" << n.courier
+                << ",\"rumor_mask\":" << n.rumors << ",\"position\":{\"x\":" << n.x << ",\"y\":" << n.y
+                << "}}";
         }
         out << "]}";
     }

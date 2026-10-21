@@ -109,3 +109,14 @@ HTTP 전송은 전용 스레드에서 수행한다. 미전송 슬롯은 1개이�
 `journal_ui_cpu`/GPU `journal_ui`는 수첩 표시, `journal_art_submit`는 이미지 제출이다. 이들은 기존 UI 구간에 포함되므로 합산하지 않는다. `journal_images_drawn`, `journal_open`, `journal_pages_unlocked`, `journey_stage`는 매 프레임 0에서 시작하고 해당 프레임 값을 기록한다. 수첩 중 마을 시뮬레이션은 정지하며 모니터 JSON도 정지로 보고한다.
 
 `--capture-story --quiet-profile --validate-render`는 실제 목표 순서로 첫 장을 진행하고 잠긴 페이지·세 그림·빵 대사·대피·완료·1000×720 수첩을 캡처한다. 여러 draw와 가속 시뮬레이션이 한 프레임에 포함되므로 성능 수치로 비교하지 않는다.
+
+
+## 다섯 마을 계측 (2026-10-21)
+
+현재 주민100명·몬스터100개가 확장 월드에서 시뮬레이션된다. `npc_pathfinding`은 전처리된 간선 위의 A* 탐색이다. 방문 셀·실패·요청 수는 기존 키를 유지한다. 화면 밖 Actor도 순회와 소문 시뮬레이션을 계속하며 렌더는 SceneGraph 공간 컬링·배칭을 사용한다.
+
+`monster_spawn_select`는 유효 재생성 후보 탐색, `monster_spawn_candidates`는 검사 후보 수, `monster_respawns`는 해당 프레임 재생성 수, `monster_respawn_retries`는 후보 없음 재시도 수다. 초기 배치도 같은 탐색 Scope에 포함되고 프레임 시작 전 초기화 구간과 정상 프레임을 구분한다. 한 프레임 최대4개, 드롭 풀 최대128개이며 `loot_pool_full`은 드롭 생략 횟수다.
+
+`rumor_contacts_tested`는 위치/소식 비교 횟수다. `rumor_contact`는 지식이 실제로 달라진 순회자 도착/현지 소식판 교환 CPU 구간, `rumor_deliveries`는 새로운 마을 소문 도착 건수다. `rumor_delivered` 이벤트는 `village=N;rumor=N;carrier=ActorId`이며 메시지 본문이나 개인정보를 기록하지 않는다. `village_atmosphere`는0.5초 간격 분위기 집계 CPU다. 각 Scope는 inclusive라 village_simulation과 합산하지 않는다.
+
+`--benchmark --tutorial`은 기존 초기 마을과 비교한다. `--benchmark-region --quiet-profile --validate-render`는60초 순회를 준비한 뒤 숲길에서140프레임을 기록한다. 준비 갱신은 프레임 시작 전 구간이므로 정상 프레임 평균에 포함되지 않는다. `--capture-region`의 여러 뷰·가속 갱신은 성능 비교로 해석하지 않는다.

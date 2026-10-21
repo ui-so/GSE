@@ -46,7 +46,8 @@ const wchar_t *Quest::Hint() const
     if (stage_ == Stage::RecordStillness)
         return L"기록은 멈춘 생명을 되돌리지 않는다. 남아 있던 모습을 그리자.";
     if (Complete())
-        return L"다음 지역은 아직 준비 중입니다. J로 이번 마을의 세 그림을 다시 볼 수 있습니다.";
+        return L"길잡이를 따라 다른 네 마을로 여행할 수 있습니다. J로 이번 마을의 세 그림을 다시 볼 수 "
+               L"있습니다.";
     return L"금빛 표시는 현재 목적지입니다. E 대화 · P 풍경 기록 · J 그림 수첩";
 }
 int Quest::TargetNpc() const
@@ -57,13 +58,13 @@ int Quest::TargetNpc() const
     case Stage::ReturnMara:
         return 0;
     case Stage::MeetChild:
-        return 20;
+        return WorldLayout::Child;
     case Stage::ShareBread:
         return 1;
     case Stage::FindFamily:
-        return mother_ ? 20 : 19;
+        return mother_ ? WorldLayout::Child : WorldLayout::Mother;
     case Stage::VisitCleric:
-        return 17;
+        return WorldLayout::Cleric;
     default:
         return -1;
     }
@@ -100,22 +101,22 @@ std::wstring Quest::Dialogue(int npc, Village::Phase phase) const
     if (npc == 0 && stage_ == Stage::MeetMara)
         return L"그 방울은 네 작은 동행의 것이구나. 함께 오지 못한 여행이라면 그림 속에서 자리를 내어 주렴. "
                L"먼저 호숫가를 그려 보겠니? 꽃을 좋아하는 리오도 만나 보고.";
-    if (npc == 20 && stage_ == Stage::MeetChild)
+    if (npc == WorldLayout::Child && stage_ == Stage::MeetChild)
         return L"북쪽 묘목 옆에는 파란 꽃이 피어. 네 그림 속 긴 귀 친구도 좋아할까? 엄마는 길에 핀 꽃을 밟지 "
                L"말래. 꽃도 자기 자리가 있대.";
-    if ((npc == 1 || npc == 25) && stage_ == Stage::ShareBread && phase > Village::Phase::Warning)
+    if ((npc == WorldLayout::Baker) && stage_ == Stage::ShareBread && phase > Village::Phase::Warning)
         return L"마지막 빵은 벌써 이웃에게 나눴지. 가게를 접고 나니 외상 장부만 남더군. 엘린과 리오도 서로를 "
                L"찾고 있어. 두 사람이 함께 떠날 수 있으면 좋겠네.";
-    if ((npc == 1 || npc == 25) && stage_ == Stage::ShareBread)
+    if ((npc == WorldLayout::Baker) && stage_ == Stage::ShareBread)
         return L"북쪽 잎이 색을 잃는다더군. 마지막 빵은 이웃에게 나눠 줄 참이야. 딱딱한 건 길에서 먹고, 더 "
                L"딱딱한 건 문받침으로 써. 엘린과 리오도 서로 찾고 있더라.";
-    if (npc == 19 && stage_ == Stage::FindFamily)
+    if (npc == WorldLayout::Mother && stage_ == Stage::FindFamily)
         return L"짐은 두고 가도 괜찮아. 리오가 어디 있는지만 알면 돼. 남쪽 집결지에서 기다리겠다고 전해 "
                L"줄래? 그 아이가 좋아하는 꽃 이름도 잊고 있었네.";
-    if (npc == 20 && stage_ == Stage::FindFamily)
+    if (npc == WorldLayout::Child && stage_ == Stage::FindFamily)
         return L"엄마를 찾았어? 그럼 나도 남쪽으로 갈게. 파란 꽃을 꺾어 갈까 했는데 그냥 두었어. 대신 그림에 "
                L"남겨 줘. 꽃이 여기 살았다는 걸 알 수 있게.";
-    if ((npc == 17 || npc == 13 || npc == 26) && stage_ == Stage::VisitCleric)
+    if ((npc == WorldLayout::Cleric || npc == 13) && stage_ == Stage::VisitCleric)
         return L"상처는 돌볼 수 있지만 탈색을 되돌린다는 약속은 못 하겠어요. 지금 살아 있는 이들이 함께 떠날 "
                L"수 있도록 곁을 지킬 뿐이죠. 남쪽 집결지까지 와 주시겠어요?";
     if (npc == 0 && stage_ == Stage::ReturnMara)
@@ -135,21 +136,21 @@ void Quest::Talk(int npc, bool frozen, Village::Phase phase)
             Advance();
         break;
     case Stage::MeetChild:
-        if (npc == 20)
+        if (npc == WorldLayout::Child)
             Advance();
         break;
     case Stage::ShareBread:
-        if ((npc == 1 || npc == 25) && phase >= Village::Phase::Warning)
+        if ((npc == WorldLayout::Baker) && phase >= Village::Phase::Warning)
             Advance();
         break;
     case Stage::FindFamily:
-        mother_ |= npc == 19;
-        child_ |= npc == 20;
+        mother_ |= npc == WorldLayout::Mother;
+        child_ |= npc == WorldLayout::Child;
         if (mother_ && child_)
             Advance();
         break;
     case Stage::VisitCleric:
-        if (npc == 17 || npc == 13 || npc == 26)
+        if (npc == WorldLayout::Cleric || npc == 13)
             Advance();
         break;
     case Stage::ReturnMara:
@@ -221,7 +222,7 @@ bool Quest::RunTests(std::string &report)
         return false;
     q.Talk(0, false, Village::Phase::Daily);
     q.Record(Site::Lake, Village::Phase::Daily);
-    q.Talk(20, false, Village::Phase::Daily);
+    q.Talk(WorldLayout::Child, false, Village::Phase::Daily);
     q.Record(Site::Flowers, Village::Phase::Daily);
     q.Talk(1, false, Village::Phase::Daily);
     if (!fail(q.Current() == Stage::ShareBread && q.RequiredPhase() == Village::Phase::Warning,
@@ -229,12 +230,13 @@ bool Quest::RunTests(std::string &report)
         return false;
     // F3 may advance the event early; required witnesses must remain recoverable.
     q.Talk(1, false, Village::Phase::Stillness);
-    q.Talk(19, false, Village::Phase::Stillness);
-    q.Talk(19, false, Village::Phase::Stillness);
-    if (!fail(q.Current() == Stage::FindFamily && q.TargetNpc() == 20, "distinct family members"))
+    q.Talk(WorldLayout::Mother, false, Village::Phase::Stillness);
+    q.Talk(WorldLayout::Mother, false, Village::Phase::Stillness);
+    if (!fail(q.Current() == Stage::FindFamily && q.TargetNpc() == WorldLayout::Child,
+              "distinct family members"))
         return false;
-    q.Talk(20, false, Village::Phase::Stillness);
-    q.Talk(17, false, Village::Phase::Stillness);
+    q.Talk(WorldLayout::Child, false, Village::Phase::Stillness);
+    q.Talk(WorldLayout::Cleric, false, Village::Phase::Stillness);
     for (int i = 0; i < 100; ++i)
         q.Update(.1f, {0, 0}, Village::Phase::Stillness);
     if (!fail(q.Current() == Stage::WatchEvacuation, "assembly proximity"))

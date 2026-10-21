@@ -40,6 +40,15 @@ class Tests(unittest.TestCase):
             value=sample();change(value)
             with self.assertRaises(ValueError):validate(value)
 
+    def test_atmosphere(self):
+        value=sample();world=value['worlds'][0]
+        world['atmosphere']=dict(mood='calm',calm=90,fear=10,trust=70,hope=75,
+                                known_rumor_mask=1,walking=0,idle=1,talking=0,frozen=0,deliveries=[])
+        validate(value)
+        for key,bad in [('fear',101),('hope',float('nan')),('mood','unknown'),('known_rumor_mask',16)]:
+            invalid=copy.deepcopy(value);invalid['worlds'][0]['atmosphere'][key]=bad
+            with self.assertRaises(ValueError): validate(invalid)
+
     def test_sessions_order_and_stale(self):
         store=Store();data=sample()
         self.assertEqual(store.receive(data),202)
@@ -100,11 +109,21 @@ def integration(exe, output):
         assert all(not m['worlds'][0]['simulated'] for m in messages.values() if m['active_world_id']=='first_level')
         for m in messages.values():
             validate(m);v=m['worlds'][0]
-            assert v['counts']['npc_total']==36 and v['counts']['monster_alive']==18
-            assert len(v['npcs'])==36 and v['counts']['wildlife']==15
+            villages=[w for w in m['worlds'] if w['kind']=='village']
+            assert len(villages)==5
+            assert all(w['counts']['npc_total']==20 and len(w['npcs'])==20 for w in villages)
+            assert sum(w['counts']['npc_total'] for w in villages)==100
+            wild=next(w for w in m['worlds'] if w['world_id']=='wilderness')
+            assert wild['counts']['monster_alive']==100 and wild['counts']['wildlife']==15
+            assert all('atmosphere' in w for w in villages)
+        ordered=sorted(messages.values(),key=lambda m:m['sequence'])
+        assert ordered[0]['worlds'][1]['atmosphere']['known_rumor_mask']==0
+        assert ordered[-1]['worlds'][1]['atmosphere']['known_rumor_mask']>0
+        assert any(w['atmosphere']['deliveries'] for w in ordered[-1]['worlds'] if w['kind']=='village')
+        assert any(n['courier'] and n['current_village']!=n['home_village'] for m in messages.values() for w in m['worlds'] for n in w['npcs'])
         assert any(n['state']=='frozen' for m in messages.values() for n in m['worlds'][0]['npcs'])
         (output/'received-snapshots.json').write_text(json.dumps(list(messages.values()),ensure_ascii=False,indent=2),encoding='utf-8')
-        print(f'PASS: {len(messages)} real C++ snapshots, 36 NPCs, 18 mobs, 15 wildlife, four phases and world switch')
+        print(f'PASS: {len(messages)} real C++ snapshots, 5 villages x 20 NPCs, 100 corridor mobs, local moods, physical rumor receipts, 15 wildlife, four phases and world switch')
     finally:server.shutdown();server.server_close();thread.join()
 
 

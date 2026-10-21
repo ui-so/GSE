@@ -51,6 +51,26 @@ def validate(data):
         for key in ('npc_total', 'npc_active', 'monster_alive', 'monster_total', 'wildlife'):
             require(integer(counts.get(key)), f'invalid count {key}')
         require(counts['monster_alive'] <= counts['monster_total'], 'inconsistent monsters')
+        for key in ('npc_present', 'respawns_total'):
+            if key in counts: require(integer(counts[key]), f'invalid count {key}')
+        atmosphere=world.get('atmosphere')
+        if atmosphere is not None:
+            require(isinstance(atmosphere, dict), 'invalid atmosphere')
+            require(atmosphere.get('mood') in ('calm','alert','anxious','mourning'), 'invalid mood')
+            for key in ('calm','fear','trust','hope'):
+                score=atmosphere.get(key)
+                require(type(score) in (int,float) and math.isfinite(score) and 0<=score<=100, 'invalid mood score')
+            for key in ('known_rumor_mask','walking','idle','talking','frozen'):
+                require(integer(atmosphere.get(key)), f'invalid atmosphere {key}')
+            require(atmosphere['known_rumor_mask']<=15, 'invalid rumor mask')
+            deliveries=atmosphere.get('deliveries')
+            require(isinstance(deliveries,list) and len(deliveries)<=4, 'invalid deliveries')
+            for delivery in deliveries:
+                require(isinstance(delivery,dict) and text(delivery.get('carrier')) and delivery['carrier'], 'invalid carrier')
+                require(integer(delivery.get('rumor')) and delivery['rumor']<4, 'invalid rumor')
+                for key in ('simulation_seconds','x','y'):
+                    v=delivery.get(key)
+                    require(type(v) in (int,float) and math.isfinite(v), 'invalid receipt coordinate/time')
         npcs = world.get('npcs')
         require(isinstance(npcs, list) and len(npcs) <= 5000, 'invalid npcs')
         require(counts['npc_total'] == len(npcs), 'npc_total mismatch')
@@ -64,6 +84,10 @@ def validate(data):
             require(npc['state'] in ('inactive', 'frozen', 'talking', 'walking', 'idle'), 'invalid npc state')
             for key in ('active', 'recorded'):
                 require(type(npc.get(key)) is bool, f'invalid npc {key}')
+            if 'courier' in npc: require(type(npc['courier']) is bool, 'invalid courier')
+            for key in ('home_village','current_village','destination'):
+                if key in npc: require(text(npc[key]), f'invalid npc {key}')
+            if 'rumor_mask' in npc: require(integer(npc['rumor_mask']) and npc['rumor_mask']<=15, 'invalid carried rumor')
             position = npc.get('position')
             require(isinstance(position, dict), 'position required')
             for key in ('x', 'y'):

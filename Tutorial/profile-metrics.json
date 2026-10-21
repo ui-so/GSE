@@ -648,6 +648,54 @@
       "name": "journal_art_loaded",
       "kind": "event",
       "unit": "text"
+    },
+    {
+      "name": "monster_spawn_select",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "rumor_contact",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "village_atmosphere",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "monster_respawns",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "monster_respawn_retries",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "monster_spawn_candidates",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "loot_pool_full",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "rumor_deliveries",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "rumor_contacts_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
     }
   ],
   "frame_fields": {

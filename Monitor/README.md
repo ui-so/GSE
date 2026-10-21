@@ -70,3 +70,18 @@ Tutorial/build/AshenShore.exe --self-test
 일반 실행은 기본 모니터링 활성화, `--no-monitor`는 비활성화다. 벤치마크와 캡처는 기본 비활성화이며 `--benchmark --monitor`로 계측 비용을 비교할 수 있다. `monitor_collect`, `monitor_serialize_enqueue`, `monitor_snapshot_bytes`, 전송 성공/실패/교체 누적값은 기존 JSONL 프로파일에 기록한다. 전송 실패가 증가하면 서버 실행 여부와 포트 8765를 확인한다.
 
 실제 검증 결과: [MONITOR_VALIDATION.md](../Docs/MONITOR_VALIDATION.md).
+
+
+## 다섯 마을 확장 (2026-10-21)
+
+현재 확장 월드는 마을5곳(각 소속 주민20명)과 숲길(몬스터100개), 기존 별도 F1 사냥터를 총7개 관측 구역으로 보고한다. `worlds`는 이 구역 목록이며7개의 독립 플레이 월드를 뜻하지 않는다. 게임의 현재 위치가 `active_world_id`가 된다. 확장 지형의6개 구역은 함께 시뮬레이션하고 F1 레벨은 별도다.
+
+v1 기존 키를 유지하며 다음 선택 필드를 추가한다.
+
+- `counts.npc_present`: 실제 해당 마을 안의 NPC 수(방문자 포함). `npc_total`은 소속 인구다.
+- `counts.respawns_total`: 숲길에서 세션 중 재생성한 몬스터 누적 수.
+- `atmosphere`: 마을에만 제공한다. `mood`는 calm/alert/anxious/mourning. `calm/fear/trust/hope`는 각각0~100. `walking/idle/talking/frozen`은 소속 주민의 상태 집계다.
+- `atmosphere.known_rumor_mask`: 0~15 비트마스크. 비트0 짐승,1 탈색 경고,2 대피,3 정지. `deliveries`에는 새 소식별 `carrier`(Actor 문자열), `rumor`(0~3), `simulation_seconds`, `x/y` 도착 증거가 들어간다.
+- NPC `home_village/current_village/destination`, `courier`(boolean), `rumor_mask`(0~15): 소속·현재 구역·목적지·순회자·소지 소식. 목적지가 없으면 빈 문자열이다.
+
+분위기 계산식·기준 이동 시간은 `Docs/REGIONAL_WORLD.md`에 있다. 소문은 실제 NPC가 광장에 도착해야 다른 마을의 소식판에 반영되며, 분위기 및 소식은 저장되지 않는다. JSON 확장 필드가 없는 이전 v1 발신기도 계속 수신한다.
