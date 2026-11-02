@@ -10,6 +10,8 @@ enum class Kind
     Potion,
     Coin,
     Brazier,
+    FoxCompanion,
+    MercenaryKit,
     Count
 };
 void Initialize();

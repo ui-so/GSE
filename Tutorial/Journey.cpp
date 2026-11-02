@@ -17,54 +17,113 @@ void Quest::Advance()
     if (!Complete())
     {
         stage_ = Stage(Step() + 1);
-        Profiler::Event("journey_stage_changed", std::to_string(Step()));
+        Profiler::Event("journey_stage_changed", StageKey());
     }
 }
-const wchar_t *Quest::Objective() const
+void Quest::Award(int coins, int experience)
 {
-    const wchar_t *steps[] = {L"마라에게 여행 이야기를 꺼내기",
-                              L"호숫가에서 P로 첫 풍경 기록",
-                              L"파란 꽃을 좋아하는 리오와 대화",
-                              L"북쪽 묘목에서 P로 꽃길 기록",
-                              L"제빵사 오렌의 마지막 빵 이야기 듣기",
-                              L"엘린과 리오, 두 사람의 안부 확인",
-                              L"성직자 세라에게 살아 있는 이의 돌봄 묻기",
-                              L"남쪽 집결지에서 대피를 5초간 지켜보기",
-                              L"북쪽 묘목에서 P로 멈춘 숲 기록",
-                              L"마라에게 사람들의 기록 전하기",
-                              L"남쪽 길로 걸어가 다음 여행 준비",
-                              L"첫 장 완료 · 남겨진 색과 사람들"};
+    pending_.coins += coins;
+    pending_.experience += experience;
+    rewardCoins_ += coins;
+    ++contracts_;
+    Profiler::Add("contract_rewards_claimed");
+    Profiler::Event("contract_reward_claimed",
+                    "contracts=" + std::to_string(contracts_) + ";coins=" + std::to_string(coins));
+}
+Reward Quest::TakeReward()
+{
+    auto reward = pending_;
+    pending_ = {};
+    return reward;
+}
+const char *Quest::StageKey() const
+{
+    const char *keys[] = {"meet_broker",      "hunt_road",        "claim_hunt",      "collect_supplies",
+                          "deliver_supplies", "claim_delivery",   "record_lake",     "meet_child",
+                          "record_flowers",   "check_warning",    "find_family",     "escort_family",
+                          "visit_cleric",     "record_stillness", "compare_records", "next_village",
+                          "find_next_work",   "complete"};
+    return keys[Step()];
+}
+std::wstring Quest::Objective() const
+{
+    if (Hunting())
+        return L"용병 의뢰 · 숲길 마물 처치 " + std::to_wstring(huntKills_) + L" / 2";
+    if (Complete() && repeatableActive_)
+        return L"다음 마을 의뢰인에게 보고하고 보수 받기";
+    const wchar_t *steps[] = {L"마라에게 일거리를 묻기",
+                              L"숲길 마물 두 마리 처치",
+                              L"마라에게 토벌 보수 받기 · 동전 15",
+                              L"오렌에게 구호소 보급품 받기",
+                              L"세라에게 빵과 붕대 배달",
+                              L"마라에게 배달 보수 받기 · 동전 10",
+                              L"호숫가에서 P로 저녁 풍경 그리기",
+                              L"리오와 여우 동료 이야기 나누기",
+                              L"북쪽 꽃길에서 P로 두 번째 풍경 그리기",
+                              L"파수꾼에게 탈색 징후와 대피 절차 묻기",
+                              L"엘린과 리오를 만나 대피 안내",
+                              L"가족을 남쪽 집결지로 안내하기",
+                              L"세라와 살아 있는 이의 돌봄 이야기",
+                              L"북쪽 경계에서 P로 멈춘 숲 기록",
+                              L"마라와 예전 그림을 보며 주민들의 이야기 남기기",
+                              L"청솔 나루 광장으로 이동",
+                              L"청솔 나루 의뢰 중개인에게 다음 일감 받기",
+                              L"서장 완료 · 의뢰와 여행은 계속된다"};
     return steps[Step()];
 }
 const wchar_t *Quest::Hint() const
 {
+    if (Hunting())
+        return L"금빛 표시가 마물을 가리킵니다. Space 검 공격 · F 동료 지원. 푸른 표식의 적은 느려지고 검 "
+               L"피해가 증가합니다.";
+    if (stage_ == Stage::CollectSupplies || stage_ == Stage::DeliverSupplies)
+        return L"돈이 필요하면 일을 받는다. 첫 배달은 빵과 붕대다. E로 물건을 받고 의뢰 대상에게 직접 "
+               L"건네자.";
     if (stage_ == Stage::FindFamily)
-        return mother_ ? L"리오에게도 직접 안부를 묻자. 목적지 표시는 움직이는 주민을 따라갑니다."
-                       : L"엘린을 먼저 만나자. 물건보다 서로를 먼저 찾는 사람들이다.";
-    if (stage_ == Stage::WatchEvacuation)
-        return L"남쪽 집결지 안에서 5초간 기다리세요. 수첩을 열면 시간도 멈춥니다.";
-    if (stage_ == Stage::RecordStillness)
-        return L"기록은 멈춘 생명을 되돌리지 않는다. 남아 있던 모습을 그리자.";
+        return L"엘린과 리오에게 각각 E로 말을 걸면 따라옵니다. 같은 사람에게 반복해서 말해도 완료되지 "
+               L"않습니다.";
+    if (stage_ == Stage::EscortFamily)
+        return L"살아 있는 두 사람이 따라올 때까지 기다리며 남쪽 집결지로 이동하세요. 완전 탈색된 주민은 "
+               L"되돌릴 수 없습니다.";
+    if (stage_ == Stage::CheckWarning)
+        return L"탈색은 익숙한 재해다. 파수꾼에게 기존 감시와 대피 절차를 듣자. 여우가 평소보다 가까이 "
+               L"붙는다.";
+    if (stage_ == Stage::RecordStillness || stage_ == Stage::CompareRecords)
+        return L"그림은 마법이 아니다. 되돌리는 대신, 풍경 옆에 그곳에서 살던 사람들의 이야기를 남긴다.";
+    if (stage_ == Stage::NextVillage)
+        return L"급속 탈색의 원인을 알아내라는 의뢰는 없다. 당장 다음 식비를 벌러 청솔 나루로 향하자.";
     if (Complete())
-        return L"길잡이를 따라 다른 네 마을로 여행할 수 있습니다. J로 이번 마을의 세 그림을 다시 볼 수 "
-               L"있습니다.";
-    return L"금빛 표시는 현재 목적지입니다. E 대화 · P 풍경 기록 · J 그림 수첩";
+        return repeatableActive_ ? L"다음 의뢰는 반복 토벌입니다. 해결 후 해당 중개인에게 돌아오세요. 다른 "
+                                   L"마을에서도 새 일을 받을 수 있습니다."
+                                 : L"서장이 끝났습니다. 마을의 중개인에게 E로 새 의뢰를 받아 "
+                                   L"탐험·전투·보수·기록의 여행을 계속하세요.";
+    return L"WASD 이동 · E 대화/보급품 · Space 검 공격 · F 여우 지원 · P 풍경 기록 · J 그림 수첩";
 }
 int Quest::TargetNpc() const
 {
     switch (stage_)
     {
-    case Stage::MeetMara:
-    case Stage::ReturnMara:
-        return 0;
-    case Stage::MeetChild:
-        return WorldLayout::Child;
-    case Stage::ShareBread:
-        return 1;
-    case Stage::FindFamily:
-        return mother_ ? WorldLayout::Child : WorldLayout::Mother;
+    case Stage::MeetBroker:
+    case Stage::ClaimHunt:
+    case Stage::ClaimDelivery:
+    case Stage::CompareRecords:
+        return WorldLayout::Mara;
+    case Stage::CollectSupplies:
+        return WorldLayout::Baker;
+    case Stage::DeliverSupplies:
     case Stage::VisitCleric:
         return WorldLayout::Cleric;
+    case Stage::MeetChild:
+        return WorldLayout::Child;
+    case Stage::CheckWarning:
+        return 4;
+    case Stage::FindFamily:
+        return mother_ ? WorldLayout::Child : WorldLayout::Mother;
+    case Stage::FindNextWork:
+        return WorldLayout::ResidentsPerVillage;
+    case Stage::Complete:
+        return repeatableActive_ && huntKills_ >= 2 ? repeatableVillage_ * WorldLayout::ResidentsPerVillage
+                                                    : -1;
     default:
         return -1;
     }
@@ -73,15 +132,17 @@ Scene::Position Quest::TargetPoint() const
 {
     switch (stage_)
     {
+    case Stage::HuntRoad:
+        return {-10, 27};
     case Stage::RecordLake:
         return {10, -5};
     case Stage::RecordFlowers:
     case Stage::RecordStillness:
         return {0, -13};
-    case Stage::WatchEvacuation:
+    case Stage::EscortFamily:
         return {0, 18};
-    case Stage::LeaveVillage:
-        return {0, 26};
+    case Stage::NextVillage:
+        return WorldLayout::Plaza(1);
     default:
         return {0, 2};
     }
@@ -90,57 +151,125 @@ Village::Phase Quest::RequiredPhase() const
 {
     if (stage_ >= Stage::RecordStillness)
         return Village::Phase::Stillness;
-    if (stage_ >= Stage::WatchEvacuation)
+    if (stage_ >= Stage::FindFamily)
         return Village::Phase::Evacuation;
-    if (stage_ >= Stage::ShareBread)
+    if (stage_ >= Stage::CheckWarning)
         return Village::Phase::Warning;
     return Village::Phase::Daily;
 }
 std::wstring Quest::Dialogue(int npc, Village::Phase phase) const
 {
-    if (npc == 0 && stage_ == Stage::MeetMara)
-        return L"그 방울은 네 작은 동행의 것이구나. 함께 오지 못한 여행이라면 그림 속에서 자리를 내어 주렴. "
-               L"먼저 호숫가를 그려 보겠니? 꽃을 좋아하는 리오도 만나 보고.";
+    if (npc == WorldLayout::Mara)
+    {
+        if (stage_ == Stage::MeetBroker)
+            return L"마라: 새 용병이군. 남쪽 숲길 마물 두 마리를 정리하면 동전 열다섯이야. 조사 의뢰는 "
+                   L"아니고, 짐수레가 다닐 길을 만드는 일이지. / 용병: 위험수당까지 세어 주신 거죠? 이 녀석 "
+                   L"간식값도 만만치 않아서.";
+        if (stage_ == Stage::ClaimHunt)
+            return L"마라: 길이 좀 조용해졌어. 약속한 동전 열다섯이야. 오렌의 빵과 붕대를 세라에게 옮기는 "
+                   L"일도 있어. 배달 보수는 열 닢. / 용병: 칼보다 빵을 나르는 날이 수지가 좋으면 좋겠네요.";
+        if (stage_ == Stage::ClaimDelivery)
+            return L"마라: 구호소에 잘 도착했대. 배달 보수 열 닢 받아. / 용병: 오늘 밥값은 벌었네. 해 지기 "
+                   L"전에 호수나 한 장 그리고 가자. 야, 붓은 간식이 아니야.";
+        if (stage_ == Stage::CompareRecords)
+            return L"마라: 수첩 속 북쪽 길엔 아직 색이 있구나. 평소 절차대로라면 대피할 시간이 있었어야 "
+                   L"했는데. / 용병: 적어도 여기에는 아직 남아 있네요. 오늘은 사람들 이야기도 적어 둘게요. "
+                   L"공짜는 아니고요. 다음에 만나면 술 한 잔 사세요.";
+    }
+    if (npc == WorldLayout::Baker && stage_ == Stage::CollectSupplies)
+        return L"오렌: 구호소에 가져갈 빵과 붕대야. 무거워도 돈은 네 몫이지, 옆의 여우 몫은 아니야. / 용병: "
+               L"들었지? 꼬리로 가방 열지 말란 뜻이야.";
+    if (npc == WorldLayout::Cleric && stage_ == Stage::DeliverSupplies)
+        return L"세라: 빵과 붕대가 왔네요. 오래전부터 탈색을 감시하며 대피소를 준비해 왔어요. 오늘도 그저 "
+               L"평소의 준비예요. / 용병: 그럼 배달 영수증도 평소처럼 부탁합니다. 이 친구 발도장은 빼고요.";
     if (npc == WorldLayout::Child && stage_ == Stage::MeetChild)
-        return L"북쪽 묘목 옆에는 파란 꽃이 피어. 네 그림 속 긴 귀 친구도 좋아할까? 엄마는 길에 핀 꽃을 밟지 "
-               L"말래. 꽃도 자기 자리가 있대.";
-    if ((npc == WorldLayout::Baker) && stage_ == Stage::ShareBread && phase > Village::Phase::Warning)
-        return L"마지막 빵은 벌써 이웃에게 나눴지. 가게를 접고 나니 외상 장부만 남더군. 엘린과 리오도 서로를 "
-               L"찾고 있어. 두 사람이 함께 떠날 수 있으면 좋겠네.";
-    if ((npc == WorldLayout::Baker) && stage_ == Stage::ShareBread)
-        return L"북쪽 잎이 색을 잃는다더군. 마지막 빵은 이웃에게 나눠 줄 참이야. 딱딱한 건 길에서 먹고, 더 "
-               L"딱딱한 건 문받침으로 써. 엘린과 리오도 서로 찾고 있더라.";
+        return L"리오: 여우가 어깨에 기대네! 어릴 때부터 같이 다녔다고? 북쪽 파란 꽃도 그려 줘. / 용병: 그림 "
+               L"그리는 손을 방해하는 재주는 어릴 때부터였지. 가만, 그 꽃은 먹는 게 아니야.";
+    if (npc == 4 && stage_ == Stage::CheckWarning)
+        return phase > Village::Phase::Warning
+                   ? L"파수꾼: 너무 빨라! 잎이 바랜다는 보고가 온 지 얼마 안 됐는데 숲이 벌써 멈춰. 정해진 "
+                     L"대피 순서를 기다릴 수 없겠어. / 용병: 위험수당 얘기는 나중에 하죠. 지금은 사람부터 "
+                     L"빼요."
+                   : L"파수꾼: 북쪽 묘목에 탈색 징후가 있어. 늘 하던 대로 감시하고 주민을 모으면 돼. 보통은 "
+                     L"시간이 있지. ...잠깐, 저쪽 불꽃이 왜 벌써 멎었지? / 용병: 이 녀석도 이상하다는군요. "
+                     L"평소 속도가 아니에요. 사람부터 빼죠.";
     if (npc == WorldLayout::Mother && stage_ == Stage::FindFamily)
-        return L"짐은 두고 가도 괜찮아. 리오가 어디 있는지만 알면 돼. 남쪽 집결지에서 기다리겠다고 전해 "
-               L"줄래? 그 아이가 좋아하는 꽃 이름도 잊고 있었네.";
+        return L"엘린: 짐은 두고 갈게요. 리오와 함께 집결지까지 가 주세요. / 용병: 앞장설게요. 이 여우가 "
+               L"길을 새면 무시하세요. 오늘은 간식보다 사람이 먼저야.";
     if (npc == WorldLayout::Child && stage_ == Stage::FindFamily)
-        return L"엄마를 찾았어? 그럼 나도 남쪽으로 갈게. 파란 꽃을 꺾어 갈까 했는데 그냥 두었어. 대신 그림에 "
-               L"남겨 줘. 꽃이 여기 살았다는 걸 알 수 있게.";
-    if ((npc == WorldLayout::Cleric || npc == 13) && stage_ == Stage::VisitCleric)
-        return L"상처는 돌볼 수 있지만 탈색을 되돌린다는 약속은 못 하겠어요. 지금 살아 있는 이들이 함께 떠날 "
-               L"수 있도록 곁을 지킬 뿐이죠. 남쪽 집결지까지 와 주시겠어요?";
-    if (npc == 0 && stage_ == Stage::ReturnMara)
-        return L"처음엔 네 동행이 좋아했을 풍경뿐이었는데, 이제는 이곳 사람들의 이름도 있구나. 누구도 "
-               L"돌아오지는 않지만 어떤 삶이 있었는지는 남았어. 남쪽 길로 여행을 계속하렴.";
+        return L"리오: 꽃도 불도 그대로 멈췄어. 엄마랑 같이 가고 싶어. / 용병: 내 망토 보이지? 그것만 "
+               L"따라와. 꽃은 내가 그려 뒀으니까 꺾지 않아도 돼.";
+    if (npc == WorldLayout::Cleric && stage_ == Stage::VisitCleric)
+        return L"세라: 살아 있는 분들의 상처부터 돌보겠어요. 완전히 무채색이 된 사람을 되돌릴 수는 없어요. / "
+               L"용병: 동전부터 챙길 줄 알았던 상인이 고양이를 먼저 안더군요. 그런 건 그림 옆에 적어 "
+               L"둬야겠어요.";
+    if (npc == WorldLayout::ResidentsPerVillage && stage_ == Stage::FindNextWork)
+        return L"중개인: 청솔 나루에 온 걸 환영하오. 숲길 마물 두 마리를 정리하면 동전 열둘이오. / 용병: "
+               L"이번엔 보통 숲길 일이죠? ...좋아요. 어차피 내일 밥값도 벌어야 하니까.";
+    if (Complete() && npc % WorldLayout::ResidentsPerVillage == 0)
+    {
+        if (repeatableActive_ && npc != repeatableVillage_ * WorldLayout::ResidentsPerVillage)
+            return L"중개인: 그 의뢰는 받은 마을의 중개인에게 보고하시오. 같은 장부를 쓰는 사이는 아니라서 "
+                   L"말이오.";
+        return repeatableActive_
+                   ? (huntKills_ >= 2
+                          ? L"중개인: 처리했군. 약속한 동전 열둘이오. / 용병: 다음에도 살아서 장부에 이름 "
+                            L"올릴게요."
+                          : L"중개인: 의뢰는 아직 진행 중이오. 마물 두 마리를 정리하고 돌아오시오.")
+                   : L"중개인: 새 길 정리 의뢰가 있소. 마물 두 마리에 동전 열둘이오. / 용병: 간식값 포함이면 "
+                     L"받아들이죠.";
+    }
     return {};
 }
-void Quest::Talk(int npc, bool frozen, Village::Phase phase)
+void Quest::Talk(int npc, bool frozen, Village::Phase phase, int totalKills)
 {
     Profiler::Scope scope("journey_interaction");
     if (frozen)
         return;
     switch (stage_)
     {
-    case Stage::MeetMara:
-        if (npc == 0)
+    case Stage::MeetBroker:
+        if (npc == WorldLayout::Mara)
+        {
+            killBaseline_ = totalKills;
+            huntKills_ = 0;
             Advance();
+        }
+        break;
+    case Stage::ClaimHunt:
+        if (npc == WorldLayout::Mara)
+        {
+            Award(15, 30);
+            Advance();
+        }
+        break;
+    case Stage::CollectSupplies:
+        if (npc == WorldLayout::Baker)
+        {
+            supplies_ = true;
+            Advance();
+        }
+        break;
+    case Stage::DeliverSupplies:
+        if (npc == WorldLayout::Cleric && supplies_)
+        {
+            supplies_ = false;
+            Advance();
+        }
+        break;
+    case Stage::ClaimDelivery:
+        if (npc == WorldLayout::Mara)
+        {
+            Award(10, 20);
+            Advance();
+        }
         break;
     case Stage::MeetChild:
         if (npc == WorldLayout::Child)
             Advance();
         break;
-    case Stage::ShareBread:
-        if ((npc == WorldLayout::Baker) && phase >= Village::Phase::Warning)
+    case Stage::CheckWarning:
+        if (npc == 4 && phase >= Village::Phase::Warning)
             Advance();
         break;
     case Stage::FindFamily:
@@ -150,12 +279,40 @@ void Quest::Talk(int npc, bool frozen, Village::Phase phase)
             Advance();
         break;
     case Stage::VisitCleric:
-        if (npc == WorldLayout::Cleric || npc == 13)
+        if (npc == WorldLayout::Cleric)
             Advance();
         break;
-    case Stage::ReturnMara:
-        if (npc == 0)
+    case Stage::CompareRecords:
+        if (npc == WorldLayout::Mara)
             Advance();
+        break;
+    case Stage::FindNextWork:
+        if (npc == WorldLayout::ResidentsPerVillage)
+        {
+            repeatableActive_ = true;
+            killBaseline_ = totalKills;
+            huntKills_ = 0;
+            Advance();
+        }
+        break;
+    case Stage::Complete:
+        if (npc % WorldLayout::ResidentsPerVillage != 0)
+            break;
+        if (repeatableActive_)
+        {
+            if (npc == repeatableVillage_ * WorldLayout::ResidentsPerVillage && huntKills_ >= 2)
+            {
+                Award(12, 20);
+                repeatableActive_ = false;
+            }
+        }
+        else
+        {
+            repeatableVillage_ = npc / WorldLayout::ResidentsPerVillage;
+            repeatableActive_ = true;
+            killBaseline_ = totalKills;
+            huntKills_ = 0;
+        }
         break;
     default:
         break;
@@ -177,85 +334,132 @@ int Quest::Record(Site site, Village::Phase phase)
     }
     return Unlocked(page) ? page : -1;
 }
-void Quest::Update(float dt, Scene::Position player, Village::Phase phase)
+void Quest::Update(float dt, Scene::Position player, Village::Phase phase, int totalKills,
+                   bool familyResolved)
 {
     Profiler::Scope scope("journey_update");
-    auto goal = TargetPoint();
-    float distance = std::hypot(player.x - goal.x, player.y - goal.y);
-    if (stage_ == Stage::WatchEvacuation)
+    if (Hunting())
     {
-        if (distance < 4 && phase >= Village::Phase::Evacuation)
-            evacuationWatch_ += std::clamp(dt, 0.f, .1f);
-        if (evacuationWatch_ >= 5)
+        huntKills_ = std::clamp(totalKills - killBaseline_, 0, 2);
+        if (stage_ == Stage::HuntRoad && huntKills_ >= 2)
             Advance();
     }
-    else if (stage_ == Stage::LeaveVillage && distance < 2)
+    float distance = std::hypot(player.x - TargetPoint().x, player.y - TargetPoint().y);
+    if (stage_ == Stage::EscortFamily)
+    {
+        if (distance < 4 && familyResolved && phase >= Village::Phase::Evacuation)
+            evacuationWatch_ += std::clamp(dt, 0.f, .1f);
+        if (evacuationWatch_ >= 1)
+            Advance();
+    }
+    else if (stage_ == Stage::NextVillage && distance < 3)
         Advance();
 }
 const wchar_t *Quest::PageTitle(int page)
 {
-    const wchar_t *titles[] = {L"함께 보았을 호수", L"파란 꽃을 좋아하는 아이", L"멈춘 숲, 남겨진 이름"};
+    const wchar_t *titles[] = {L"배달 뒤의 저녁 호수", L"꽃과 장난꾸러기 동료",
+                               L"색은 멎고, 이야기는 남았다"};
     return titles[std::clamp(page, 0, 2)];
 }
-const wchar_t *Quest::PageNote(int page)
+const wchar_t *Quest::PageNote(int page) const
 {
-    const wchar_t *notes[] = {L"물 위의 등불을 오래 바라보았다. 네가 함께 왔다면 물새를 따라 귀를 움직였을 "
-                              L"것이다. 오지 못한 너의 자리를 그림에 남긴다.",
-                              L"리오는 파란 꽃을 좋아한다고 했다. 꽃을 밟지 말라는 어머니의 말도 기억하고 "
-                              L"있었다. 풍경 곁에 여기 살아가는 사람들의 말을 적기 시작했다.",
-                              L"하온은 묘목 곁에 남았다. 불꽃과 꽃은 꺼지거나 마르지 않고 그대로 멈췄다. "
-                              L"기록은 이 죽음을 되돌리지 않는다. 다만 누가 여기 살았는지 남긴다."};
+    if (stage_ >= Stage::CompareRecords)
+    {
+        const wchar_t *notes[] = {
+            L"첫 토벌과 배달을 마친 저녁의 호수. 당시에는 그저 지나온 곳을 남기고 싶었다. 지금 덧붙인다. "
+            L"상인은 돈주머니보다 고양이를 먼저 안고 대피했다.",
+            L"리오는 파란 꽃을 꺾지 않고 두었다. 엘린은 짐을 내려놓고 아이부터 찾았다. 내 손을 방해하던 푸른 "
+            L"여우는 그날 꼬리를 낮추고 내 곁을 지켰다.",
+            L"묘목지기 하온과 불꽃은 마지막 자세 그대로 멈췄다. 멸망한 것은 무너진 폐허가 아니라 멈춰 버린 "
+            L"삶이었다. 되돌릴 힘은 없다. 적어도 이 페이지에는 누가 살았는지 남긴다."};
+        return notes[std::clamp(page, 0, 2)];
+    }
+    const wchar_t *notes[] = {
+        L"잿빛 여울 호숫가. 저녁이면 빵 냄새가 난다. 두 건의 보수로 오늘 식비는 해결. 여우는 물고기를 보다가 "
+        L"수첩 위에 앉았다. 언제 없어질지 모르니 지나온 곳 정도는 남겨 두자.",
+        L"북쪽 묘목 옆 파란 꽃. 리오가 좋아하는 길이다. 붓끝을 쫓는 여우 탓에 선이 삐뚤어졌다. 다음에도 함께 "
+        L"이 길을 지나면 좋겠다.",
+        L"이건 평소 알던 탈색의 속도가 아니다. 준비하던 사이 숲 일부가 멈췄다. 여우도 내 어깨에서 떨어지려 "
+        L"하지 않았다. 그림이 죽음을 되돌리지는 않는다."};
     return notes[std::clamp(page, 0, 2)];
 }
 bool Quest::RunTests(std::string &report)
 {
-    auto fail = [&](bool okay, const char *name) {
+    auto check = [&](bool okay, const char *name) {
         if (!okay)
-            report += std::string("FAIL: journey ") + name + "\n";
+            report += std::string("FAIL: story v2 ") + name + "\n";
         return okay;
     };
     Quest q;
-    if (!fail(q.Record(Site::Stillness, Village::Phase::Daily) == -1, "locked records"))
+    q.Talk(WorldLayout::Cleric, false, Village::Phase::Daily);
+    q.Talk(WorldLayout::Mara, true, Village::Phase::Daily, 8);
+    if (!check(q.Step() == 0 && q.RequiredPhase() == Village::Phase::Daily,
+               "premature and frozen interaction"))
         return false;
-    q.Talk(0, true, Village::Phase::Daily);
-    if (!fail(q.Current() == Stage::MeetMara, "frozen conversations"))
+    q.Talk(0, false, Village::Phase::Daily, 8);
+    q.Update(.1f, {0, 2}, Village::Phase::Daily, 8);
+    if (!check(q.ContractKills() == 0 && q.Current() == Stage::HuntRoad, "pre-accept kills excluded"))
         return false;
-    q.Talk(0, false, Village::Phase::Daily);
+    q.Update(.1f, {0, 2}, Village::Phase::Daily, 10);
+    q.Talk(0, false, Village::Phase::Daily, 10);
+    auto reward = q.TakeReward();
+    if (!check(reward.coins == 15 && q.TakeReward().coins == 0 && q.ContractsCompleted() == 1,
+               "one-time first pay"))
+        return false;
+    q.Talk(WorldLayout::Cleric, false, Village::Phase::Daily, 10);
+    if (!check(!q.CarryingSupplies() && q.Current() == Stage::CollectSupplies, "no invented delivery"))
+        return false;
+    q.Talk(1, false, Village::Phase::Daily, 10);
+    q.Talk(WorldLayout::Cleric, false, Village::Phase::Daily, 10);
+    q.Talk(0, false, Village::Phase::Daily, 10);
+    if (!check(q.TakeReward().coins == 10 && q.ContractsCompleted() == 2 &&
+                   q.RequiredPhase() == Village::Phase::Daily,
+               "two normal jobs before disaster"))
+        return false;
     q.Record(Site::Lake, Village::Phase::Daily);
     q.Talk(WorldLayout::Child, false, Village::Phase::Daily);
     q.Record(Site::Flowers, Village::Phase::Daily);
-    q.Talk(1, false, Village::Phase::Daily);
-    if (!fail(q.Current() == Stage::ShareBread && q.RequiredPhase() == Village::Phase::Warning,
-              "automatic warning and bread gate"))
+    if (!check(q.RequiredPhase() == Village::Phase::Warning && q.PageCount() == 2,
+               "ordinary sketches before warning"))
         return false;
-    // F3 may advance the event early; required witnesses must remain recoverable.
-    q.Talk(1, false, Village::Phase::Stillness);
+    q.Talk(4, false, Village::Phase::Stillness);
     q.Talk(WorldLayout::Mother, false, Village::Phase::Stillness);
     q.Talk(WorldLayout::Mother, false, Village::Phase::Stillness);
-    if (!fail(q.Current() == Stage::FindFamily && q.TargetNpc() == WorldLayout::Child,
-              "distinct family members"))
+    if (!check(q.Current() == Stage::FindFamily, "distinct family witnesses"))
         return false;
     q.Talk(WorldLayout::Child, false, Village::Phase::Stillness);
-    q.Talk(WorldLayout::Cleric, false, Village::Phase::Stillness);
-    for (int i = 0; i < 100; ++i)
-        q.Update(.1f, {0, 0}, Village::Phase::Stillness);
-    if (!fail(q.Current() == Stage::WatchEvacuation, "assembly proximity"))
+    for (int i = 0; i < 50; ++i)
+        q.Update(.1f, {0, 18}, Village::Phase::Stillness, 10, false);
+    if (!check(q.Current() == Stage::EscortFamily, "physical arrival required"))
         return false;
-    for (int i = 0; i < 60; ++i)
-        q.Update(.1f, {0, 18}, Village::Phase::Stillness);
-    if (!fail(q.Record(Site::Stillness, Village::Phase::Warning) == -1, "stillness gate"))
+    for (int i = 0; i < 12; ++i)
+        q.Update(.1f, {0, 18}, Village::Phase::Stillness, 10, true);
+    q.Talk(WorldLayout::Cleric, false, Village::Phase::Stillness);
+    if (!check(q.Record(Site::Stillness, Village::Phase::Warning) == -1, "full stillness record gate"))
         return false;
     q.Record(Site::Stillness, Village::Phase::Stillness);
     q.Talk(0, false, Village::Phase::Stillness);
-    q.Update(.1f, {0, 26}, Village::Phase::Stillness);
-    if (!fail(q.Complete() && q.PageCount() == 3 && q.Record(Site::Lake, Village::Phase::Stillness) == 0,
-              "chapter completion and rereading"))
+    q.Update(.1f, WorldLayout::Plaza(1), Village::Phase::Stillness, 10);
+    q.Talk(20, false, Village::Phase::Daily, 10);
+    if (!check(q.Complete() && q.RepeatableActive() && q.PageCount() == 3 && q.RewardCoins() == 25,
+               "next village continues livelihood"))
+        return false;
+    q.Update(.1f, WorldLayout::Plaza(1), Village::Phase::Stillness, 12);
+    q.Talk(40, false, Village::Phase::Daily, 12);
+    if (!check(q.TakeReward().coins == 0, "correct contract broker"))
+        return false;
+    q.Talk(20, false, Village::Phase::Daily, 12);
+    if (!check(q.TakeReward().coins == 12 && !q.RepeatableActive() && q.ContractsCompleted() == 3,
+               "repeat contract payout"))
+        return false;
+    q.Talk(40, false, Village::Phase::Daily, 12);
+    if (!check(q.Hunting() && q.ContractKills() == 0, "fresh contract baseline"))
         return false;
     q = Quest{};
-    if (!fail(q.Step() == 0 && q.PageCount() == 0, "restart clears chapter"))
+    if (!check(q.Step() == 0 && q.PageCount() == 0 && q.RewardCoins() == 0, "restart"))
         return false;
-    report += "PASS: journey chapter, 3 image unlocks, witness order, family uniqueness, assembly wait, "
-              "phase gates, early-event recovery and restart.\n";
+    report += "PASS: story v2 jobs-before-disaster, two distinct contracts and one-time pay, parcel handoff, "
+              "hobby-to-life notes, physical rescue gate, next-village work and repeatable contracts.\n";
     return true;
 }
 } // namespace Journey

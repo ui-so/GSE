@@ -40,7 +40,8 @@ enum class Kind
     Particles,
     Marker,
     Attack,
-    Hud
+    Hud,
+    Companion
 };
 enum class Layer
 {

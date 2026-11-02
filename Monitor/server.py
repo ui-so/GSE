@@ -34,6 +34,18 @@ def validate(data):
         require(text(data.get(key)) and bool(data[key]), f'invalid {key}')
     require(integer(data.get('sequence')), 'invalid sequence')
     require(type(data.get('paused')) is bool, 'invalid paused')
+    story=data.get('story')
+    if story is not None:
+        require(isinstance(story,dict) and story.get('version')==2, 'invalid story version')
+        for key in ('step','steps','contracts_completed','contract_kills','reward_coins','family_rescued'):
+            require(integer(story.get(key)), f'invalid story {key}')
+        require(story['steps']==17 and story['step']<=story['steps'], 'invalid story step')
+        require(story['contract_kills']<=2 and story['family_rescued']<=2, 'invalid story counters')
+        require(text(story.get('stage')) and text(story.get('objective'),512), 'invalid story text')
+        for key in ('carrying_supplies','repeatable_contract'):
+            require(type(story.get(key)) is bool, f'invalid story {key}')
+        require(story.get('companion_state') in ('playful','wary'), 'invalid companion state')
+        require(story.get('disaster_kind') in ('none','ordinary_signs','rapid'), 'invalid disaster kind')
     worlds = data.get('worlds')
     require(isinstance(worlds, list) and 1 <= len(worlds) <= 64, 'invalid worlds')
     ids = set()

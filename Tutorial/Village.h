@@ -45,6 +45,7 @@ struct Citizen
     bool walking = false, frozen = false, recorded = false, gifted = false;
     int homeVillage = 0, destination = -1, circuit = 0;
     bool courier = false;
+    bool escorting = false, rescued = false;
     unsigned rumors = 0;
 };
 struct Monster
@@ -53,7 +54,7 @@ struct Monster
     Position home{};
     int health = 36, kind = 0;
     float cooldown = 0, flash = 0;
-    float respawn = 0;
+    float respawn = 0, weakened = 0;
 };
 struct Loot
 {
@@ -76,6 +77,12 @@ struct RumorReceipt
     float time = 0;
     Position position{};
 };
+struct Companion
+{
+    Scene::ActorId actor = 0, target = 0;
+    float time = 0, cooldown = 0, pulse = 0;
+    bool wary = false;
+};
 class World
 {
   public:
@@ -83,6 +90,22 @@ class World
                     Scene::ActorId player, std::function<bool(Position)> blocked);
     void Update(float dt, int talking = -1);
     void AdvanceEvent();
+    float DesaturationRadius() const;
+    const char *DisasterKind() const;
+    bool BeginEscort(int id);
+    bool FamilyResolved() const;
+    int RescuedCount() const;
+    int Kills() const
+    {
+        return kills_;
+    }
+    void GrantReward(int coins, int experience);
+    Scene::ActorId HuntTarget() const;
+    bool CastSupport();
+    const Companion &Familiar() const
+    {
+        return companion_;
+    }
     void Talk(int id);
     bool Buy(int id);
     bool Heal(int id);
@@ -179,7 +202,8 @@ class World
     std::array<VillageStats, WorldLayout::VillageCount> statistics_{};
     std::vector<RumorReceipt> receipts_;
     float time_ = 0, statisticsTimer_ = 0;
-    int respawns_ = 0;
+    int respawns_ = 0, kills_ = 0;
+    Companion companion_{};
     size_t spawnCursor_ = 0;
     Phase phase_ = Phase::Daily;
     float phaseTime_ = 0, attackCooldown_ = 0, attackAnimation_ = 0, immunity_ = 0;
@@ -195,5 +219,6 @@ class World
     void AddLoot(Position position);
     void ExchangeRumors(Citizen &citizen);
     void RebuildStatistics(int talking);
+    void UpdateCompanion(float dt, int talking);
 };
 } // namespace Village

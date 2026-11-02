@@ -34,11 +34,20 @@ struct Region
     std::string mood;
     std::vector<Delivery> deliveries;
 };
+struct Progression
+{
+    bool enabled = false, supplies = false, wary = false, repeatable = false;
+    int step = 0, steps = 17, contracts = 0, kills = 0, rewardCoins = 0, rescued = 0;
+    std::string stage, disaster;
+    std::wstring objective;
+};
 std::string Serialize(const std::vector<Region> &regions, const std::string &activeWorld, bool paused,
-                      const std::string &session, std::uint64_t sequence);
+                      const std::string &session, std::uint64_t sequence,
+                      const Progression &progression = {});
 void Initialize(bool enabled);
 bool Due();
-void Publish(const std::vector<Region> &regions, const std::string &activeWorld, bool paused);
+void Publish(const std::vector<Region> &regions, const std::string &activeWorld, bool paused,
+             const Progression &progression = {});
 void Shutdown();
 bool RunTests(std::string &report);
 } // namespace Monitor

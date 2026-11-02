@@ -279,6 +279,13 @@ void BeginFrame()
                              "batch_break_texture",
                              "batch_break_capacity",
                              "batch_break_mesh",
+                             "companion_candidates_tested",
+                             "companion_line_of_sight_samples",
+                             "companion_spells_cast",
+                             "companion_models_drawn",
+                             "npc_rescues_completed",
+                             "contract_rewards_claimed",
+                             "desaturation_overlay_tiles",
                              "opengl_errors"})
         counters[name] = 0;
     times.clear();

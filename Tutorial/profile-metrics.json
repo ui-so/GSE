@@ -696,6 +696,91 @@
       "name": "rumor_contacts_tested",
       "kind": "counter",
       "unit": "count_or_value"
+    },
+    {
+      "name": "companion_update",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "companion_support_select",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "companion_render_submit",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "npc_escort_update",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "desaturation_overlay_rebuild",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "companion_candidates_tested",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "companion_line_of_sight_samples",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "companion_spells_cast",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "companion_models_drawn",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "npc_rescues_completed",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "contract_rewards_claimed",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "desaturation_overlay_tiles",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "story_contracts_completed",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "story_family_rescued",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "companion_wary",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "desaturation_radius_m",
+      "kind": "counter",
+      "unit": "m"
     }
   ],
   "frame_fields": {

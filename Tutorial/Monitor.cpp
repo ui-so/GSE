@@ -101,14 +101,25 @@ void SendLoop()
 }
 } // namespace
 std::string Serialize(const std::vector<Region> &regions, const std::string &activeWorld, bool paused,
-                      const std::string &sessionId, std::uint64_t seq)
+                      const std::string &sessionId, std::uint64_t seq, const Progression &p)
 {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::boolalpha << std::fixed << std::setprecision(3);
     out << "{\"schema_version\":1,\"type\":\"world_snapshot\",\"project_id\":\"gse\",\"session_id\":"
         << Quote(sessionId) << ",\"sequence\":" << seq << ",\"active_world_id\":" << Quote(activeWorld)
-        << ",\"paused\":" << paused << ",\"worlds\":[";
+        << ",\"paused\":" << paused;
+    if (p.enabled)
+    {
+        out << ",\"story\":{\"version\":2,\"stage\":" << Quote(p.stage) << ",\"step\":" << p.step
+            << ",\"steps\":" << p.steps << ",\"objective\":" << Quote(Utf8(p.objective))
+            << ",\"contracts_completed\":" << p.contracts << ",\"contract_kills\":" << p.kills
+            << ",\"reward_coins\":" << p.rewardCoins << ",\"carrying_supplies\":" << p.supplies
+            << ",\"family_rescued\":" << p.rescued << ",\"repeatable_contract\":" << p.repeatable
+            << ",\"companion_state\":" << Quote(p.wary ? "wary" : "playful")
+            << ",\"disaster_kind\":" << Quote(p.disaster) << "}";
+    }
+    out << ",\"worlds\":[";
     bool firstRegion = true;
     for (const auto &r : regions)
     {
@@ -194,12 +205,13 @@ bool Due()
     next = now + std::chrono::milliseconds(500);
     return true;
 }
-void Publish(const std::vector<Region> &regions, const std::string &activeWorld, bool paused)
+void Publish(const std::vector<Region> &regions, const std::string &activeWorld, bool paused,
+             const Progression &progression)
 {
     if (!enabled)
         return;
     Profiler::Scope scope("monitor_serialize_enqueue");
-    auto body = Serialize(regions, activeWorld, paused, session, ++sequence);
+    auto body = Serialize(regions, activeWorld, paused, session, ++sequence, progression);
     Profiler::Add("monitor_snapshot_bytes", double(body.size()));
     Profiler::Add("monitor_snapshots_built");
     {

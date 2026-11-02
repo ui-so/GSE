@@ -203,3 +203,6 @@ label {
 .mood-row span:first-child {width:32px}
 .mood-row span:last-child {width:28px;text-align:right}
 .mood-row progress {width:100%;height:9px;accent-color:#7cbdab}
+
+.stories {display:grid;gap:16px;margin-bottom:20px}
+.story {border-left:3px solid #78cce8}

@@ -109,6 +109,10 @@ bool journalOpen = false;
 int journalPage = 0;
 Scene::ActorId journalActor = 0, assemblyActor = 0, exitActor = 0;
 int talkingNpc = -1;
+int frozenTerrainStep = -1;
+int validationExit = 0;
+bool scenarioMonitoring = false;
+void PublishMonitoring();
 struct Object
 {
     Scene::ActorId actor;
@@ -162,8 +166,8 @@ struct NPC
 };
 const NPC npcTemplates[] = {
     {{-1, 0},
-     L"장례지기 · 마라",
-     L"떠난 이를 부르는 일과, 돌아오게 하는 일은 다르지. 오늘은 그저 기억하자.",
+     L"의뢰 중개인 · 마라",
+     L"일거리를 찾는다면 잘 왔어. 숲길 정리부터 보급품 배달까지, 오늘도 사람 사는 일은 계속되지.",
      {.40f, .48f, .48f}},
     {{3, 2},
      L"빵 굽는 오렌",
@@ -257,10 +261,10 @@ void BuildRegionalRoster()
     const wchar_t *names[] = {L"가온", L"누리", L"다온", L"라온", L"마루", L"보라", L"소담",
                               L"아람", L"여울", L"우림", L"유나", L"이솔", L"지안", L"초아",
                               L"태오", L"하람", L"해온", L"나린", L"도윤", L"루아"};
-    const wchar_t *roles[] = {L"기록지기",  L"제빵사", L"우물지기", L"약초사",       L"파수꾼",
-                              L"상인",      L"아이",   L"종지기",   L"대장장이",     L"묘지기",
-                              L"목수",      L"재봉사", L"양봉가",   L"수습 사제",    L"길잡이",
-                              L"순회 상인", L"성직자", L"직조공",   L"꽃 심는 아이", L"숲지기"};
+    const wchar_t *roles[] = {L"의뢰 중개인", L"제빵사", L"우물지기", L"약초사",       L"파수꾼",
+                              L"상인",        L"아이",   L"종지기",   L"대장장이",     L"묘지기",
+                              L"목수",        L"재봉사", L"양봉가",   L"수습 사제",    L"길잡이",
+                              L"순회 상인",   L"성직자", L"직조공",   L"꽃 심는 아이", L"숲지기"};
     const wchar_t *lines[] = {L"이웃의 이름부터 적어 두고 있어요. 한 사람의 하루도 긴 이야기지요.",
                               L"빵을 너무 오래 구웠나 봐. 방패로 팔면 더 비쌀까?",
                               L"오늘 물을 길었나요? 우물 곁에서는 잠시 쉬어 가세요.",
@@ -547,6 +551,7 @@ void initWorld()
 {
     Profiler::Scope scope("tutorial_world_generate");
     collisionGridReady = false;
+    frozenTerrainStep = -1;
     BuildRegionalRoster();
     tutorialScene.Clear();
     tutorialChunks.clear();
@@ -574,7 +579,7 @@ void initWorld()
     assembly.SetLayer(Scene::Layer::Effects);
     assemblyActor = assembly.GetId();
     auto &exit = tutorialScene.Create("SouthRoadWaypoint", Scene::Kind::Marker, sceneryGroup);
-    exit.SetWorldPosition({0, 26});
+    exit.SetWorldPosition(WorldLayout::Plaza(1));
     exit.SetLayer(Scene::Layer::Effects);
     exitActor = exit.GetId();
     V houses[] = {{-6, -4}, {11, -9}, {5, 5}, {-6, 7}, {7, 1}, {-15, -7}, {-15, 7}, {8, 15}};
@@ -703,6 +708,8 @@ void person(V p, C, bool hero = false, int id = 0)
         action = 3;
     float phase = !hero && villageWorld.Citizens().size() > size_t(id) ? villageWorld.Citizens()[id].animation
                                                                        : worldTime;
+    if (hero)
+        SceneModels::Draw(SceneModels::Kind::MercenaryKit, p.x, p.y);
     Visuals::Sprite(p.x, p.y, hero ? 0 : 1 + id % 3, hero ? facing : id % 4, action,
                     phase * (action == 1 ? 1.6f : .65f) + id * .17f, frozen);
     if (!hero && length(ActorPosition(npcActors[id]) - PlayerPosition()) < 4)
@@ -712,6 +719,8 @@ void person(V p, C, bool hero = false, int id = 0)
 }
 Scene::ActorId JourneyTargetActor()
 {
+    if (journey.Hunting())
+        return villageWorld.HuntTarget();
     int npc = journey.TargetNpc();
     if (npc >= 0)
         return npcActors[npc];
@@ -722,9 +731,9 @@ Scene::ActorId JourneyTargetActor()
     case Journey::Stage::RecordFlowers:
     case Journey::Stage::RecordStillness:
         return seedActor;
-    case Journey::Stage::WatchEvacuation:
+    case Journey::Stage::EscortFamily:
         return assemblyActor;
-    case Journey::Stage::LeaveVillage:
+    case Journey::Stage::NextVillage:
         return exitActor;
     default:
         return tutorialPlayer;
@@ -734,7 +743,7 @@ V target()
 {
     return ActorPosition(JourneyTargetActor());
 }
-const wchar_t *objective()
+std::wstring objective()
 {
     return journey.Objective();
 }
@@ -832,7 +841,12 @@ void interact()
         if (citizen.frozen)
             story.clear();
         villageWorld.Talk(npc);
-        journey.Talk(npc, citizen.frozen, villageWorld.GetPhase());
+        if (journey.Current() == Journey::Stage::FindFamily)
+            villageWorld.BeginEscort(npc);
+        journey.Talk(npc, citizen.frozen, villageWorld.GetPhase(), villageWorld.Kills());
+        auto reward = journey.TakeReward();
+        if (reward.coins || reward.experience)
+            villageWorld.GrantReward(reward.coins, reward.experience);
         std::wstring message =
             story.empty()
                 ? (citizen.frozen ? villageWorld.Dialogue(npc)
@@ -873,7 +887,8 @@ void update(float dt)
     {
         SyncJourneyPhase();
         auto player = PlayerPosition();
-        journey.Update(dt, {player.x, player.y}, villageWorld.GetPhase());
+        journey.Update(dt, {player.x, player.y}, villageWorld.GetPhase(), villageWorld.Kills(),
+                       villageWorld.FamilyResolved());
         SyncJourneyPhase();
         finished = journey.Complete();
     }
@@ -947,10 +962,12 @@ void drawWorld()
         RenderBatch::PushMatrix();
         RenderBatch::Translatef(pivot.x, pivot.y, 0);
         tutorialTerrain.Draw(width, height, worldTime);
-        if (villageWorld.GetPhase() == Village::Phase::Stillness)
+        if (villageWorld.DesaturationRadius() > 0)
         {
-            if (frozenTerrain.Empty())
+            int step = int(villageWorld.DesaturationRadius() * 4);
+            if (frozenTerrain.Empty() || frozenTerrainStep != step)
             {
+                Profiler::Scope overlayScope("desaturation_overlay_rebuild");
                 std::vector<TerrainBatch::Tile> tiles;
                 for (int x = -6; x <= 6; ++x)
                     for (int y = -22; y <= -10; ++y)
@@ -958,6 +975,8 @@ void drawWorld()
                             tiles.push_back({x, y, (abs(x) < 2 || abs(y + 18) < 2) ? 6 : 4,
                                              .92f + hash(x / 3, y / 3) * .10f});
                 frozenTerrain.Build(tiles);
+                frozenTerrainStep = step;
+                Profiler::Add("desaturation_overlay_tiles", double(tiles.size()));
             }
             frozenTerrain.Draw(width, height, 0);
         }
@@ -1039,6 +1058,28 @@ void drawWorld()
     }
     for (auto actor : visibleActors)
     {
+        if (actor->GetKind() == Scene::Kind::Companion)
+        {
+            Profiler::Scope companionDraw("companion_render_submit");
+            const auto &familiar = villageWorld.Familiar();
+            auto position = actor->GetWorldPosition();
+            V ground = project({position.x, position.y}),
+              p = project({position.x, position.y}, actor->GetWorldElevation());
+            SceneRender::Push(*actor, p.x, p.y);
+            Visuals::SoftShadow(ground.x, ground.y, 15, .5f, .18f);
+            glow(p + V{0, -6}, 32, {.18f, .63f, .9f, .55f});
+            SceneModels::Draw(SceneModels::Kind::FoxCompanion, p.x, p.y, .72f,
+                              familiar.time * (familiar.wary ? .15f : 1.7f));
+            if (familiar.pulse > 0 && ActorActive(familiar.target))
+            {
+                V goal = project(ActorPosition(familiar.target), 25);
+                line(p, goal, {.32f, .8f, 1.f, familiar.pulse * 1.7f}, 3);
+                ellipse(goal, 23, 10, {.3f, .8f, 1.f, familiar.pulse * .5f});
+            }
+            SceneRender::Pop();
+            Profiler::Add("companion_models_drawn");
+            continue;
+        }
         if (actor->GetKind() == Scene::Kind::Enemy)
         {
             const auto &m = villageWorld.Monsters().at(actor->GetDataIndex());
@@ -1051,6 +1092,11 @@ void drawWorld()
                               worldTime, m.flash > 0);
             rect(p.x - 18, p.y - 68, 36, 4, {.15f, .07f, .06f});
             rect(p.x - 18, p.y - 68, float(m.health), 4, {.8f, .3f, .2f});
+            if (m.weakened > 0)
+            {
+                ellipse(p, 25, 11, {.2f, .65f, 1.f, .35f});
+                text(p.x - 25, p.y - 77, L"감속 · 약화", teal);
+            }
             SceneRender::Pop();
             continue;
         }
@@ -1151,7 +1197,7 @@ void drawWorld()
         SceneRender::Pop();
         RenderBatch::PopMatrix();
     }
-    if (!journey.Complete() && ActorVisible(markerActor))
+    if (journey.HasObjective() && ActorVisible(markerActor))
     {
         auto targetActor = JourneyTargetActor();
         if (tutorialScene.Find(markerActor)->GetParent() != targetActor && tutorialScene.Find(targetActor))
@@ -1192,7 +1238,7 @@ void minimap()
             V p = m(ActorPosition(o.actor));
             rect(p.x - 3, p.y - 3, 6, 6, {.55f, .48f, .34f});
         }
-    if (!journey.Complete())
+    if (journey.HasObjective())
         ellipse(m(target()), 3, 3, gold);
     for (auto id : npcActors)
         if (ActorVisible(id))
@@ -1218,7 +1264,7 @@ void DrawJournal()
     float x = 24, y = 24, w = width - 48.f, h = height - 48.f;
     rect(x, y, w, h, {.075f, .09f, .09f, 1});
     rect(x, y, w, 3, gold);
-    text(x + 28, y + 34, L"여행 수첩 · 함께하지 못한 여행", gold);
+    text(x + 28, y + 34, L"용병의 여행 수첩 · 꼬리 자국 주의", gold);
     text(x + 28, y + 67,
          std::to_wstring(journalPage + 1) + L" / 3  ·  " + Journey::Quest::PageTitle(journalPage), ink);
     float imageX = x + 28, imageY = y + 103;
@@ -1235,13 +1281,12 @@ void DrawJournal()
     int columns = std::max(10, int((x + w - 24 - notesX) / 17));
     text(notesX, imageY + 22, L"풍경에 남긴 말", gold);
     wrapped(notesX, imageY + 58,
-            unlocked ? Journey::Quest::PageNote(journalPage)
-                     : L"목적지의 풍경을 P로 기록하면 이 페이지가 열립니다.",
+            unlocked ? journey.PageNote(journalPage) : L"목적지의 풍경을 P로 기록하면 이 페이지가 열립니다.",
             columns);
     text(notesX, y + h - 154, L"기록한 그림 " + std::to_wstring(journey.PageCount()) + L" / 3", teal);
-    wrapped(notesX, y + h - 122, L"그림 속 작은 동행은 주인공이 기억으로 그려 넣은 반려동물입니다.", columns);
-    text(x + 28, y + h - 53, L"기록은 떠난 이를 되돌리지 않는다. 그래도 누가 여기 있었는지는 남길 수 있다.",
-         ink);
+    wrapped(notesX, y + h - 122, L"어릴 적부터 함께한 푸른 여우 동료.", columns);
+    text(x + 28, y + h - 53,
+         L"그림에는 마법이 없다. 지나온 풍경을 남기던 습관에, 이제 사람들의 이야기를 덧붙인다.", ink);
     text(x + 28, y + h - 22,
          L"← → 그림 넘기기   1~3 페이지 선택   J / P / E / Esc 닫기 · 읽는 동안 시간 정지", gold);
     SceneRender::Pop();
@@ -1288,7 +1333,7 @@ void draw()
     text(43, 84, objective());
     int sec = int(elapsed);
     wchar_t t[100];
-    swprintf_s(t, L"첫 장 · %d / 11     %02d:%02d  |  5개 마을 · 주민 100명", journey.Step(), sec / 60,
+    swprintf_s(t, L"서장 · %d / 17     %02d:%02d  |  5개 마을 · 주민 100명", journey.Step(), sec / 60,
                sec % 60);
     text(43, 115, t, {.49f, .61f, .56f});
     if (region >= 0)
@@ -1306,16 +1351,21 @@ void draw()
              std::to_wstring(villageWorld.Coins()) + L"  회복약 " + std::to_wstring(villageWorld.Potions()) +
              L"  경험치 " + std::to_wstring(villageWorld.Experience()));
     text(42, 272,
-         L"이야기 수집 " + std::to_wstring(villageWorld.RecordCount()) + L" / 100 · 풍경 기록 " +
-             (std::to_wstring(journey.PageCount()) + L" / 3"));
+         L"의뢰 완료 " + std::to_wstring(journey.ContractsCompleted()) + L" · 풍경 " +
+             std::to_wstring(journey.PageCount()) + L" / 3 · " +
+             (journey.CarryingSupplies() ? L"보급품 소지" : L"보급품 없음"));
+    text(42, 298,
+         villageWorld.Familiar().wary ? L"여우: 곁에 바짝 붙음 · 평소와 다른 마력"
+                                      : L"여우: 오래된 동료 · 자동 감속/약화 지원",
+         teal);
     wrapped(42, height - 112.f, journey.Hint(), std::max(25, (width - 90) / 18));
     if (villageWorld.IsDead())
         text(width * .5f - 150, height * .5f, L"쓰러졌습니다 · R로 마을에서 회복", gold);
     minimap();
     rect(24, height - 62.f, width - 48.f, 40, {.025f, .045f, .043f, .92f});
     text(42, height - 36.f,
-         L"WASD 이동  E 대화/획득  P 기록  J 수첩  Space 공격  Q 회복  F1 사냥터  Esc 휴식", ink);
-    if (!journey.Complete())
+         L"WASD 이동  E 대화/획득  P 기록  J 수첩  Space 검  F 동료  Q 회복  F1 사냥터  Esc 휴식", ink);
+    if (journey.HasObjective())
     {
         V d = target() - PlayerPosition();
         float dist = length(d);
@@ -1348,12 +1398,12 @@ void draw()
         wrapped(x + 23, y + 63, dialog, std::max(20, int((width * .76f - 46) / 18)));
         text(x + 23, y + 181, L"[E] 닫기   상인 [1] 구입   성직자 [2] 치료", teal);
     }
-    if (finished && dialog.empty())
+    if (finished && !journey.HasObjective() && dialog.empty())
     {
         rect(width * .5f - 240, 185, 480, 100, {.025f, .045f, .043f, .94f});
-        text(width * .5f - 212, 217, L"첫 장 완료 · 남겨진 색과 사람들", gold);
-        text(width * .5f - 212, 246, L"세 그림과 주민들의 이야기를 남겼다.");
-        text(width * .5f - 212, 270, L"J로 수첩 다시 보기 · 다음 지역은 준비 중");
+        text(width * .5f - 212, 217, L"서장 완료 · 용병의 여행", gold);
+        text(width * .5f - 212, 246, L"두 의뢰와 급속 탈색을 겪고 사람들의 이야기를 남겼다.");
+        text(width * .5f - 212, 270, L"J로 수첩 · 다섯 마을 중개인에게 다음 일감 받기");
     }
     if (paused)
     {
@@ -1413,8 +1463,28 @@ void capture(const char *path)
     out.write((char *)&b, sizeof(b));
     out.write((char *)pixels.data(), pixels.size());
 }
-void CaptureStory()
+bool RunStoryScenario(bool captureFrames)
 {
+    std::ofstream report("story-scenario-report.txt");
+    auto check = [&](bool okay, const char *name) {
+        report << (okay ? "PASS: " : "FAIL: ") << name << " stage=" << journey.StageKey()
+               << " kills=" << villageWorld.Kills() << " coins=" << villageWorld.Coins()
+               << " phase=" << int(villageWorld.GetPhase()) << "\n";
+        report.flush();
+        if (scenarioMonitoring)
+        {
+            PublishMonitoring();
+            Sleep(600);
+        }
+        return okay;
+    };
+    auto shot = [&](const char *name) {
+        if (captureFrames)
+        {
+            draw();
+            capture(name);
+        }
+    };
     auto talk = [&](int npc) {
         SetPlayerPosition(ActorPosition(npcActors[npc]));
         camera = PlayerPosition();
@@ -1422,65 +1492,196 @@ void CaptureStory()
         interact();
         SyncJourneyPhase();
     };
+    auto hunt = [&]() {
+        int targetKills = villageWorld.Kills() + 2;
+        for (int victim = 0; victim < 2; ++victim)
+        {
+            auto id = villageWorld.HuntTarget();
+            if (!id)
+                return false;
+            auto position = ActorPosition(id);
+            V hero{};
+            bool found = false;
+            for (auto d : {V{1, 0}, V{-1, 0}, V{0, 1}, V{0, -1}})
+            {
+                auto candidate = position + d * .7f;
+                bool clear = true;
+                for (int step = 1; step <= 7; ++step)
+                    if (blocked(position + d * (step * .1f)))
+                        clear = false;
+                if (clear)
+                {
+                    hero = candidate;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return false;
+            SetPlayerPosition(hero);
+            camera = hero;
+            villageFacing = {position.x - hero.x, position.y - hero.y};
+            int before = villageWorld.Kills();
+            keys[VK_SPACE] = true;
+            for (int frame = 0; frame < 100 && villageWorld.Kills() == before; ++frame)
+            {
+                update(.1f);
+                if (victim == 0 && frame == 0)
+                    shot(targetKills <= 2 ? "story-v2-companion-combat.bmp" : "story-v2-repeat-combat.bmp");
+            }
+            keys[VK_SPACE] = false;
+            if (villageWorld.Kills() == before)
+                return false;
+        }
+        update(.1f);
+        return villageWorld.Kills() >= targetKills;
+    };
     reset();
+    if (!check(villageWorld.Coins() == 3 && ActorActive(villageWorld.Familiar().actor),
+               "mercenary and living companion"))
+        return false;
+    shot("story-v2-arrival.bmp");
     OpenJournal(0);
-    draw();
-    capture("journal-locked.bmp");
+    shot("journal-locked.bmp");
     CloseJournal();
     talk(0);
+    if (!check(journey.Current() == Journey::Stage::HuntRoad &&
+                   villageWorld.GetPhase() == Village::Phase::Daily,
+               "ordinary first contract"))
+        return false;
+    if (!check(hunt(), "actual sword combat and companion support"))
+        return false;
+    if (!check(journey.Current() == Journey::Stage::ClaimHunt &&
+                   villageWorld.GetPhase() == Village::Phase::Daily,
+               "no disaster before daily work"))
+        return false;
+    talk(0);
+    int firstPay = villageWorld.Coins();
+    talk(0);
+    if (!check(firstPay == 18 && villageWorld.Coins() == firstPay && journey.ContractsCompleted() == 1,
+               "one-time hunt pay"))
+        return false;
+    talk(WorldLayout::Baker);
+    if (!check(journey.CarryingSupplies(), "physical parcel pickup"))
+        return false;
+    shot("story-v2-delivery.bmp");
+    talk(WorldLayout::Cleric);
+    talk(0);
+    if (!check(!journey.CarryingSupplies() && journey.ContractsCompleted() == 2 &&
+                   villageWorld.Coins() == 28 && villageWorld.GetPhase() == Village::Phase::Daily,
+               "two normal jobs and 25 coins pay"))
+        return false;
+    SetPlayerPosition(ActorPosition(seedActor));
+    RecordLandscape();
+    if (!check(!journalOpen, "wrong sketch location cannot advance"))
+        return false;
+    dialog.clear();
+    talkingNpc = -1;
     SetPlayerPosition(ActorPosition(shrineActor));
     camera = {10, -5};
     RecordLandscape();
-    draw();
-    capture("journal-lake.bmp");
+    auto beforeNote = std::wstring(journey.PageNote(0));
+    if (!check(journalOpen && journey.Unlocked(0) && !villageWorld.StoryRecorded(),
+               "ordinary evening notebook"))
+        return false;
+    float beforeTime = worldTime;
+    auto beforePlayer = PlayerPosition();
+    update(.1f);
+    if (!check(worldTime == beforeTime && length(PlayerPosition() - beforePlayer) < .001f,
+               "notebook pauses simulation"))
+        return false;
+    shot("journal-lake.bmp");
     CloseJournal();
     talk(WorldLayout::Child);
     SetPlayerPosition(ActorPosition(seedActor));
     camera = {0, -13};
     RecordLandscape();
-    draw();
-    capture("journal-flowers.bmp");
+    shot("journal-flowers.bmp");
     CloseJournal();
     SyncJourneyPhase();
-    SetPlayerPosition(ActorPosition(npcActors[1]));
+    update(.1f);
+    if (!check(villageWorld.GetPhase() == Village::Phase::Warning && !villageWorld.Familiar().wary &&
+                   !villageWorld.Citizens()[WorldLayout::Keeper].frozen,
+               "ordinary signs and familiar evacuation protocol"))
+        return false;
+    shot("story-v2-ordinary-warning.bmp");
+    talk(4);
+    for (int i = 0; i < 25; ++i)
+        update(.1f);
+    camera = {0, -13};
+    shot("story-v2-rapid.bmp");
     camera = PlayerPosition();
-    interact();
-    draw();
-    capture("story-last-bread.bmp");
-    interact();
-    SyncJourneyPhase();
+    shot("story-v2-wary-companion.bmp");
+    if (!check(villageWorld.GetPhase() == Village::Phase::Evacuation && villageWorld.Familiar().wary &&
+                   villageWorld.Citizens()[WorldLayout::Keeper].frozen,
+               "rapid acceleration and wary companion"))
+        return false;
     talk(WorldLayout::Mother);
     talk(WorldLayout::Child);
-    talk(WorldLayout::Cleric);
+    if (!check(journey.Current() == Journey::Stage::EscortFamily && !villageWorld.FamilyResolved(),
+               "dialog alone is not rescue"))
+        return false;
     SetPlayerPosition(ActorPosition(assemblyActor));
     camera = PlayerPosition();
-    for (int i = 0; i < 40; ++i)
+    for (int i = 0; i < 400 && journey.Current() == Journey::Stage::EscortFamily; ++i)
+    {
         update(.1f);
-    draw();
-    capture("story-evacuation.bmp");
-    for (int i = 0; i < 20; ++i)
-        update(.1f);
+        if (i == 20)
+            shot("story-v2-escort.bmp");
+    }
+    if (!check(villageWorld.RescuedCount() == 2 && journey.Current() == Journey::Stage::VisitCleric,
+               "two actual NPC arrivals"))
+        return false;
+    talk(WorldLayout::Cleric);
     SetPlayerPosition(ActorPosition(seedActor));
-    camera = {0, -16};
+    camera = {0, -13};
     RecordLandscape();
-    draw();
-    capture("journal-stillness.bmp");
+    shot("journal-stillness.bmp");
     CloseJournal();
     talk(0);
-    SetPlayerPosition(ActorPosition(exitActor));
+    if (!check(journey.PageCount() == 3 && beforeNote != journey.PageNote(0) &&
+                   villageWorld.StoryRecorded() && villageWorld.Citizens()[WorldLayout::Keeper].frozen,
+               "life stories added without resurrection"))
+        return false;
+    auto next = WorldLayout::Plaza(1);
+    SetPlayerPosition({next.x, next.y});
     camera = PlayerPosition();
     update(.1f);
-    draw();
-    capture("story-chapter-complete.bmp");
-    OpenJournal(2);
-    width = 1000;
-    height = 720;
-    draw();
-    capture("journal-small.bmp");
-    CloseJournal();
-    std::ofstream report("story-render-report.txt");
-    report << "Chapter complete=" << journey.Complete() << " pages=" << journey.PageCount()
-           << " phase=" << int(villageWorld.GetPhase()) << " embedded PNG pages=3\n";
+    talk(20);
+    if (!check(journey.Complete() && journey.RepeatableActive() && journey.ContractsCompleted() == 2,
+               "next village offers paid work"))
+        return false;
+    shot("story-v2-next-village.bmp");
+    if (!check(hunt(), "next-village repeatable combat"))
+        return false;
+    talk(20);
+    if (!check(journey.ContractsCompleted() == 3 && villageWorld.Coins() == 40 && !journey.RepeatableActive(),
+               "repeatable payout is one-time"))
+        return false;
+    shot("story-v2-chapter-complete.bmp");
+    if (captureFrames)
+    {
+        OpenJournal(2);
+        width = 1000;
+        height = 720;
+        draw();
+        capture("journal-small.bmp");
+        CloseJournal();
+        std::ofstream renderReport("story-render-report.txt");
+        renderReport << "Chapter complete=" << journey.Complete() << " pages=" << journey.PageCount()
+                     << " contracts=" << journey.ContractsCompleted() << " rewards=" << journey.RewardCoins()
+                     << " rescued=" << villageWorld.RescuedCount()
+                     << " phase=" << int(villageWorld.GetPhase())
+                     << " living_companion=1 embedded_png_v2=3\n";
+    }
+    report << "PASS: full v2 story, 2 ordinary contracts, rapid disaster, physical escort, 3 records, "
+              "next-village contract.\n";
+    return true;
+}
+void CaptureStory()
+{
+    if (!RunStoryScenario(true))
+        validationExit = 5;
     running = false;
 }
 LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
@@ -1584,7 +1785,15 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
             camera = PlayerPosition();
         }
         else if (w == VK_F3 && !paused)
-            villageWorld.AdvanceEvent();
+        {
+            if (journey.RequiredPhase() >= Village::Phase::Warning)
+                villageWorld.AdvanceEvent();
+            else
+                openDialog(L"의뢰 수첩",
+                           L"먼저 일상 의뢰 두 건을 마치고 풍경을 기록하세요. 사건은 그 뒤에 시작됩니다.");
+        }
+        else if (w == 'F' && !paused && dialog.empty())
+            villageWorld.CastSupport();
         else if (w == 'J' && !paused && !villageWorld.IsDead())
             OpenJournal(journalPage);
         else if (w == 'P' && !paused && dialog.empty())
@@ -1720,17 +1929,23 @@ int tests()
     float route = 0;
     V stops[] = {PlayerPosition(),
                  ActorPosition(npcActors[0]),
+                 {-10, 27},
+                 ActorPosition(npcActors[0]),
+                 ActorPosition(npcActors[1]),
+                 ActorPosition(npcActors[WorldLayout::Cleric]),
+                 ActorPosition(npcActors[0]),
                  ActorPosition(shrineActor),
                  ActorPosition(npcActors[WorldLayout::Child]),
                  ActorPosition(seedActor),
-                 ActorPosition(npcActors[1]),
+                 ActorPosition(npcActors[4]),
                  ActorPosition(npcActors[WorldLayout::Mother]),
                  ActorPosition(npcActors[WorldLayout::Child]),
-                 ActorPosition(npcActors[WorldLayout::Cleric]),
                  ActorPosition(assemblyActor),
+                 ActorPosition(npcActors[WorldLayout::Cleric]),
                  ActorPosition(seedActor),
                  ActorPosition(npcActors[0]),
-                 ActorPosition(exitActor)};
+                 ActorPosition(exitActor),
+                 ActorPosition(npcActors[20])};
     for (size_t i = 0; i + 1 < std::size(stops); i++)
     {
         float d = routeDistance(stops[i], stops[i + 1]);
@@ -1740,54 +1955,13 @@ int tests()
     assert(route / 3.1f + 180 < 300);
     std::ofstream report("self-test-report.txt");
     report << "Collision-aware route distance: " << route
-           << " m\nWalking plus 180-second reading/exploration allowance: " << route / 3.1f + 180
+           << " m\nWalking plus 150s reading, 15s combat and 15s escort allowance: " << route / 3.1f + 180
            << " seconds\n";
     assert(!blocked(ActorPosition(shrineActor)));
     assert(!blocked(ActorPosition(seedActor)));
     assert(!blocked(PlayerPosition()));
     assert(blocked({16, -7}));
-    auto talk = [&](int npc) {
-        SetPlayerPosition(ActorPosition(npcActors[npc]));
-        interact();
-        interact();
-        SyncJourneyPhase();
-    };
-    talk(0);
-    assert(journey.Current() == Journey::Stage::RecordLake);
-    SetPlayerPosition(ActorPosition(seedActor));
-    RecordLandscape();
-    assert(!journalOpen);
-    dialog.clear();
-    SetPlayerPosition(ActorPosition(shrineActor));
-    RecordLandscape();
-    assert(journalOpen && journey.Unlocked(0));
-    V stillPlayer = PlayerPosition();
-    float stillTime = worldTime;
-    update(.1f);
-    assert(worldTime == stillTime && length(PlayerPosition() - stillPlayer) < .001f);
-    CloseJournal();
-    talk(WorldLayout::Child);
-    SetPlayerPosition(ActorPosition(seedActor));
-    RecordLandscape();
-    CloseJournal();
-    SyncJourneyPhase();
-    assert(villageWorld.GetPhase() == Village::Phase::Warning);
-    talk(1);
-    talk(WorldLayout::Mother);
-    talk(WorldLayout::Child);
-    talk(WorldLayout::Cleric);
-    assert(villageWorld.GetPhase() == Village::Phase::Evacuation);
-    SetPlayerPosition(ActorPosition(assemblyActor));
-    for (int i = 0; i < 60; ++i)
-        update(.1f);
-    assert(villageWorld.GetPhase() == Village::Phase::Stillness);
-    SetPlayerPosition(ActorPosition(seedActor));
-    RecordLandscape();
-    CloseJournal();
-    talk(0);
-    SetPlayerPosition(ActorPosition(exitActor));
-    update(.1f);
-    assert(journey.Complete() && journey.PageCount() == 3 && finished);
+    assert(RunStoryScenario(false));
     reset();
     assert(journey.Step() == 0 && !finished && dialog.empty() && !journalOpen);
     float e = elapsed;
@@ -1838,8 +2012,8 @@ int tests()
               "movement/collision/flee behavior.\n";
     report << "PASS: quest order, premature interaction, reachability, collision, pause, movement, diagonal "
               "speed, dialog lock, restart.\n";
-    report << "PASS: full 11-step chapter through real Actors, 3 page unlocks, notebook simulation pause and "
-              "automatic story phases.\n";
+    report << "PASS: v2 prologue through real Actors, paid work, physical rescue, three records and "
+              "next-village contracts.\n";
     std::string villageReport;
     bool villageOkay = villageWorld.RunTests(villageReport);
     report << villageReport;
@@ -1939,11 +2113,25 @@ void PublishMonitoring()
             ++hunting.monstersAlive;
     regions.push_back(std::move(hunting));
     int current = villageWorld.CurrentVillage();
+    Monitor::Progression progress;
+    progress.enabled = true;
+    progress.step = journey.Step();
+    progress.steps = Journey::Quest::ChapterSteps;
+    progress.stage = journey.StageKey();
+    progress.objective = journey.Objective();
+    progress.contracts = journey.ContractsCompleted();
+    progress.kills = journey.ContractKills();
+    progress.rewardCoins = journey.RewardCoins();
+    progress.supplies = journey.CarryingSupplies();
+    progress.rescued = villageWorld.RescuedCount();
+    progress.repeatable = journey.RepeatableActive();
+    progress.wary = villageWorld.Familiar().wary;
+    progress.disaster = villageWorld.DisasterKind();
     Monitor::Publish(regions,
                      firstLevelMode ? "first_level"
                      : current >= 0 ? WorldLayout::Settlements()[current].id
                                     : "wilderness",
-                     paused || journalOpen);
+                     paused || journalOpen, progress);
 }
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
 {
@@ -1965,6 +2153,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
+    }
+    if (wcsstr(command, L"--story-monitor-test"))
+    {
+        firstWorld.Generate(42);
+        Monitor::Initialize(true);
+        scenarioMonitoring = true;
+        bool okay = RunStoryScenario(false);
+        Monitor::Shutdown();
+        return okay ? 0 : 5;
     }
     if (wcsstr(command, L"--monitor-test"))
     {
@@ -2063,6 +2260,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         villageWorld.Respawn();
         SetPlayerPosition({-10, 31});
         camera = PlayerPosition();
+    }
+    if (wcsstr(command, L"--benchmark-rapid"))
+    {
+        firstLevelMode = false;
+        villageWorld.AdvanceEvent();
+        villageWorld.AdvanceEvent();
+        SetPlayerPosition({0, -13});
+        camera = PlayerPosition();
+        for (int i = 0; i < 20; ++i)
+            villageWorld.Update(.1f);
+        Profiler::Event("benchmark_scenario", "story_v2_rapid_expansion");
     }
     if (firstLevelMode)
     {
@@ -2263,6 +2471,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         Profiler::Add("postprocess_enabled", postEnabled ? 1 : 0);
         Profiler::Add("journal_open", journalOpen ? 1 : 0);
         Profiler::Add("journey_stage", journey.Step());
+        Profiler::Add("story_contracts_completed", journey.ContractsCompleted());
+        Profiler::Add("story_family_rescued", villageWorld.RescuedCount());
+        Profiler::Add("companion_wary", villageWorld.Familiar().wary ? 1 : 0);
+        Profiler::Add("desaturation_radius_m", villageWorld.DesaturationRadius());
         Profiler::Add("journal_pages_unlocked", journey.PageCount());
         Profiler::Add("map_seed", firstWorld.Seed());
         Profiler::Add("scene_mode", firstLevelMode ? 1 : 0);
@@ -2290,5 +2502,5 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     wglDeleteContext(rc);
     ReleaseDC(windowHandle, dc);
     DestroyWindow(windowHandle);
-    return 0;
+    return validationExit;
 }

@@ -1,0 +1,22 @@
+{
+  "generator": "built-in image_gen",
+  "generated_date": "2026-11-02",
+  "canon": "openworld_rpg_story_v2.md; living cool-blue floating companion",
+  "images": [
+    {
+      "file": "lakeside-v2.png",
+      "input": "lakeside-v1.png",
+      "prompt": "Use case: precise-object-edit. Asset: embedded travel sketchbook illustration for a Korean medieval 2.5D RPG. Preserve the existing watercolor/graphite on cream paper style, landscape 1536x1024 composition, village architecture, surrounding scenery and restrained warm/cool lighting. Revised canon: the fox is an ALIVE small magical friend who has traveled with a wandering sword mercenary since childhood, never a dead pet or a memory. Its body is cool azure/teal with pale blue fur and a softly luminous long fluffy tail, it floats slightly above the ground. No wings, halo, resurrection, magical healing of gray land, writing, lettering, captions, UI, borders or watermark. Change only the fox near the foreground shore to the living cool blue fox, gently hovering about a hand's breadth above the grass and playfully watching the lake ripples. Keep the lake, busy bakery, villagers, sunset, sketchbook and all other objects unchanged. This is an ordinary evening after paid mercenary work, not a mourning scene."
+    },
+    {
+      "file": "blue-flowers-v2.png",
+      "input": "blue-flowers-v1.png",
+      "prompt": "Use case: precise-object-edit. Asset: embedded travel sketchbook illustration for a Korean medieval 2.5D RPG. Preserve the existing watercolor/graphite on cream paper style, landscape 1536x1024 composition, village architecture, surrounding scenery and restrained warm/cool lighting. Revised canon: the fox is an ALIVE small magical friend who has traveled with a wandering sword mercenary since childhood, never a dead pet or a memory. Its body is cool azure/teal with pale blue fur and a softly luminous long fluffy tail, it floats slightly above the ground. No wings, halo, resurrection, magical healing of gray land, writing, lettering, captions, UI, borders or watermark. Replace only the copper fox sniffing flowers in the lower left with the living cool blue fox, hovering beside the child, fluffy tail moving playfully. Keep the mother and child, old gardener, blue flowers, village, pine forest and all scene details unchanged. A warm ordinary encounter, before the disaster."
+    },
+    {
+      "file": "stillness-v2.png",
+      "input": "stillness-v1.png",
+      "prompt": "Use case: precise-object-edit. Asset: embedded travel sketchbook illustration for a Korean medieval 2.5D RPG. Preserve the existing watercolor/graphite on cream paper style, landscape 1536x1024 composition, village architecture, surrounding scenery and restrained warm/cool lighting. Revised canon: the fox is an ALIVE small magical friend who has traveled with a wandering sword mercenary since childhood, never a dead pet or a memory. Its body is cool azure/teal with pale blue fur and a softly luminous long fluffy tail, it floats slightly above the ground. No wings, halo, resurrection, magical healing of gray land, writing, lettering, captions, UI, borders or watermark. Remove the gray fox sketch in the lower left. Instead place the living cool blue fox beside the traveler's pack on the colored safe foreground edge at lower right, floating close to the pack, ears low and tail held still with wary concern. Keep the fully monochrome frozen gardener, unnaturally fixed flame, trees and plants exactly frozen, preserve the colored village in the distance and evacuating people on the right. The fox and companion cannot revive or recolor anything; no beams or saving-the-world symbolism. No gore."
+    }
+  ]
+}

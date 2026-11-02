@@ -47,7 +47,7 @@ void World::Initialize(Scene::SceneGraph &scene, const std::vector<Scene::ActorI
     phase_ = Phase::Daily;
     phaseTime_ = 0;
     health_ = 100;
-    coins_ = 20;
+    coins_ = 3;
     potions_ = 2;
     experience_ = 0;
     landscape_ = story_ = false;
@@ -57,7 +57,12 @@ void World::Initialize(Scene::SceneGraph &scene, const std::vector<Scene::ActorI
     receipts_.clear();
     spawnSites_.clear();
     time_ = statisticsTimer_ = 0;
-    respawns_ = 0;
+    respawns_ = kills_ = 0;
+    companion_ = {};
+    auto &familiar = scene.Create("FloatingFoxCompanion", Scene::Kind::Companion, player);
+    companion_.actor = familiar.GetId();
+    familiar.SetLocalPosition({-.65f, .15f});
+    familiar.SetLocalElevation(42);
     spawnCursor_ = 0;
     navigation_.assign(Width * Height, 0);
     for (int i = 0; i < Width * Height; ++i)
@@ -128,8 +133,17 @@ void World::Initialize(Scene::SceneGraph &scene, const std::vector<Scene::ActorI
         actor.SetDataIndex(int(monsters_.size()));
         monsters_.push_back({actor.GetId(), p, 36, i % 2, 0, 0, 0});
     }
+    for (size_t i = 0; i < std::min(size_t(2), monsters_.size()); ++i)
+    {
+        Position p{-10.f + (i == 0 ? -.9f : .9f), 27.f + float(i) * 2};
+        if (!blocked_(p))
+        {
+            monsters_[i].home = p;
+            scene.Find(monsters_[i].actor)->SetWorldPosition(p);
+        }
+    }
     RebuildStatistics(-1);
-    notice_ = L"다섯 마을의 주민 100명과 길 위의 소문을 만나 보세요. 순회자가 도착해야 소문이 전해집니다.";
+    notice_ = L"주머니엔 동전 세 닢. 마라에게 일을 받고 여우 동료와 오늘 식비부터 벌어 보세요.";
 }
 
 void World::Plan(Citizen &c, Position target)
@@ -221,9 +235,23 @@ void World::Move(Scene::ActorId id, Position goal, float amount, bool wilderness
         scene_->Find(id)->SetWorldPosition(p);
     }
 }
+float World::DesaturationRadius() const
+{
+    if (phase_ == Phase::Daily)
+        return 0;
+    if (phase_ == Phase::Warning)
+        return .8f;
+    if (phase_ == Phase::Evacuation)
+        return .8f + 5.2f * std::clamp(phaseTime_ / 8.f, 0.f, 1.f);
+    return 6;
+}
+const char *World::DisasterKind() const
+{
+    return phase_ == Phase::Daily ? "none" : phase_ == Phase::Warning ? "ordinary_signs" : "rapid";
+}
 bool World::IsFrozen(Position p) const
 {
-    return phase_ == Phase::Stillness && Distance(p, {0, -16}) < 6;
+    return DesaturationRadius() > 0 && Distance(p, {0, -16}) < DesaturationRadius();
 }
 void World::SetPhase(Phase phase)
 {
@@ -243,16 +271,19 @@ void World::SetPhase(Phase phase)
                              : i == WorldLayout::Child ? WorldLayout::Mother
                                                        : i]
                        .home;
-        if (phase >= Phase::Evacuation && c.reaction != Reaction::Stay)
+        if (phase >= Phase::Evacuation && c.reaction != Reaction::Stay && i != WorldLayout::Mother &&
+            i != WorldLayout::Child)
             goal = {-6.f + float(i % 8) * 1.7f, 18.f + float(i / 8) * 1.7f};
         Plan(c, goal);
     }
     RebuildStatistics(-1);
-    notice_ = phase == Phase::Warning
-                  ? L"북쪽 묘목의 색이 옅어집니다. 상인은 짐을 싸고 가족은 서로를 찾습니다."
-              : phase == Phase::Evacuation
-                  ? L"대피 종이 울립니다. 남쪽 집결지로 향하는 주민들의 이야기를 들어보세요."
-                  : L"북쪽 숲 일부가 무채색으로 멈췄습니다. 되돌릴 수 없습니다. 남아 있는 삶을 기록하세요.";
+    notice_ =
+        phase == Phase::Warning
+            ? L"북쪽에 탈색 징후가 있습니다. 익숙한 감시·대피 절차를 준비합니다. 파수꾼의 설명을 들어보세요."
+        : phase == Phase::Evacuation
+            ? L"너무 빠릅니다! 통상 절차를 기다릴 수 없습니다. 엘린과 리오에게 말을 걸어 집결지로 안내하세요."
+            : L"몇 초 사이 북쪽 숲 일부가 멈췄습니다. 살아 있는 이를 돕고, 예전 풍경 곁에 사람들의 이야기를 "
+              L"적으세요.";
 }
 void World::AdvanceEvent()
 {
@@ -265,7 +296,8 @@ void World::AdvanceEvent()
 }
 const wchar_t *World::PhaseName() const
 {
-    const wchar_t *names[] = {L"평온한 일상", L"탈색의 징후", L"주민 대피", L"정지한 북쪽 숲"};
+    const wchar_t *names[] = {L"평온한 일상", L"일반 탈색 징후", L"급속 탈색 · 긴급 대피",
+                              L"급속 탈색 후 국소 정지"};
     return names[int(phase_)];
 }
 const wchar_t *World::Behavior(int id) const
@@ -273,6 +305,13 @@ const wchar_t *World::Behavior(int id) const
     const auto &c = citizens_.at(size_t(id));
     if (c.frozen)
         return L"무채색 · 정지";
+    if (c.homeVillage == 0 && phase_ >= Phase::Evacuation && !c.escorting && !c.rescued &&
+        (id == WorldLayout::Mother || id == WorldLayout::Child))
+        return L"용병의 대피 안내를 기다림";
+    if (c.rescued)
+        return L"집결지 도착 · 생존";
+    if (c.escorting)
+        return c.walking ? L"용병을 따라 대피" : L"용병을 기다리는 중";
     if (c.courier)
         return c.destination >= 0 ? L"마을 사이 이동 · 소문 운반" : L"광장에서 소식 교환";
     Phase local = c.homeVillage == 0 ? phase_ : Phase::Daily;
@@ -301,7 +340,7 @@ void World::Update(float dt, int talking)
     if (phase_ != Phase::Daily && phase_ != Phase::Stillness)
     {
         phaseTime_ += dt;
-        if (phaseTime_ > (phase_ == Phase::Warning ? 30.f : 60.f))
+        if (phaseTime_ > (phase_ == Phase::Warning ? 40.f : 8.f))
             AdvanceEvent();
     }
     for (size_t i = 0; i < citizens_.size(); ++i)
@@ -323,10 +362,37 @@ void World::Update(float dt, int talking)
             continue;
         auto before = GetPosition(c.actor);
         Phase local = c.homeVillage == 0 ? phase_ : Phase::Daily;
+        if (c.escorting)
+        {
+            Profiler::Scope escortScope("npc_escort_update");
+            c.timer -= dt;
+            auto hero = GetPosition(player_);
+            if (Distance(hero, {0, 18}) < 4 && Distance(before, {0, 18}) < 3.8f)
+            {
+                c.rescued = true;
+                c.escorting = false;
+                c.route.clear();
+                Profiler::Add("npc_rescues_completed");
+                Profiler::Event("npc_rescued", std::to_string(c.actor));
+            }
+            else if (Distance(hero, before) < 1.5f)
+                c.route.clear();
+            else if (c.timer <= 0)
+            {
+                Plan(c, hero);
+                c.timer = .8f;
+            }
+        }
+        if (c.rescued)
+        {
+            c.walking = false;
+            continue;
+        }
         if (c.step < c.route.size())
         {
             Move(c.actor, c.route[c.step],
-                 dt * (c.courier                    ? WorldLayout::WalkingSpeed
+                 dt * (c.escorting                  ? 3.4f
+                       : c.courier                  ? WorldLayout::WalkingSpeed
                        : local >= Phase::Evacuation ? 2.f
                                                     : 1.05f));
             if (Distance(GetPosition(c.actor), c.route[c.step]) < .08f)
@@ -374,6 +440,7 @@ void World::Update(float dt, int talking)
     {
         Profiler::Add("village_monsters_tested");
         m.flash = std::max(0.f, m.flash - dt);
+        m.weakened = std::max(0.f, m.weakened - dt);
         if (m.health <= 0)
         {
             m.respawn = std::max(0.f, m.respawn - dt);
@@ -385,7 +452,7 @@ void World::Update(float dt, int talking)
                     m.home = point;
                     m.health = 36;
                     m.cooldown = 1;
-                    m.flash = 0;
+                    m.flash = m.weakened = 0;
                     auto actor = scene_->Find(m.actor);
                     actor->SetWorldPosition(point);
                     actor->SetEnabled(true);
@@ -409,7 +476,7 @@ void World::Update(float dt, int talking)
         if (!safe && Distance(hero, p) < 6 && Distance(hero, m.home) < 10)
         {
             if (Distance(hero, p) > 1.1f)
-                Move(m.actor, hero, dt * 1.6f, true);
+                Move(m.actor, hero, dt * 1.6f * (m.weakened > 0 ? .55f : 1.f), true);
             else if (immunity_ <= 0 && m.cooldown <= 0 && talking < 0)
             {
                 health_ = std::max(0, health_ - 8);
@@ -420,6 +487,7 @@ void World::Update(float dt, int talking)
         else if (Distance(p, m.home) > .3f)
             Move(m.actor, m.home, dt * 1.2f, true);
     }
+    UpdateCompanion(dt, talking);
     for (auto &drop : loot_)
         if (!drop.collected)
         {
@@ -541,12 +609,13 @@ bool World::Attack(Position facing)
                 clear = false;
         if (!clear)
             continue;
-        m.health -= 12;
+        m.health -= m.weakened > 0 ? 18 : 12;
         m.flash = .15f;
         if (m.health <= 0)
         {
             scene_->Find(m.actor)->SetEnabled(false);
             experience_ += 20;
+            ++kills_;
             m.home = p; // Dead slots retain the actual death position for displaced respawn.
             m.respawn = WorldLayout::RespawnSeconds;
             AddLoot(p);
@@ -599,14 +668,134 @@ void World::Sketch(Position p)
     if (Distance(p, {10, -5}) < 3 || Distance(p, {0, -13}) < 3)
     {
         landscape_ = true;
-        if (RecordCount() >= 3)
+        if (RecordCount() >= 3 && phase_ >= Phase::Evacuation)
             story_ = true;
-        notice_ = story_ ? L"풍경 옆에 주민들의 이야기를 적었다. 그림 속에는 언제나 반려동물이 함께 있다."
-                         : L"풍경 속에 함께 오지 못한 작은 환수를 그렸다. 사람들의 이야기도 들어보자.";
-        Profiler::Event("village_sketch_recorded", story_ ? "landscape_and_people" : "landscape_with_pet");
+        notice_ = story_ ? L"풍경 곁에 사람들의 이야기를 적었다. 푸른 여우 동료가 수첩 가까이 몸을 기댄다."
+                         : L"오늘 지나온 호숫가를 그렸다. 여우가 붓끝을 쫓아 선 하나가 삐뚤어졌다.";
+        Profiler::Event("village_sketch_recorded",
+                        story_ ? "landscape_and_people" : "landscape_with_companion");
     }
     else
         notice_ = L"호숫가 추모석 또는 북쪽 묘목 옆에서 P로 그림을 기록하세요.";
+}
+void World::GrantReward(int coins, int experience)
+{
+    coins_ += std::max(0, coins);
+    experience_ += std::max(0, experience);
+    notice_ = L"의뢰 보수 · 동전 +" + std::to_wstring(coins) + L" · 경험치 +" + std::to_wstring(experience);
+}
+bool World::BeginEscort(int id)
+{
+    if ((id != WorldLayout::Mother && id != WorldLayout::Child) || phase_ < Phase::Evacuation)
+        return false;
+    auto &c = citizens_.at(size_t(id));
+    if (c.frozen || !Active(c.actor) || Distance(GetPosition(c.actor), GetPosition(player_)) > 2)
+        return false;
+    if (!c.rescued)
+    {
+        c.escorting = true;
+        c.timer = 0;
+        c.route.clear();
+        c.step = 0;
+    }
+    return true;
+}
+int World::RescuedCount() const
+{
+    int result = 0;
+    for (int id : {WorldLayout::Mother, WorldLayout::Child})
+        if (citizens_.at(size_t(id)).rescued)
+            ++result;
+    return result;
+}
+bool World::FamilyResolved() const
+{
+    for (int id : {WorldLayout::Mother, WorldLayout::Child})
+    {
+        const auto &c = citizens_.at(size_t(id));
+        if (!c.rescued && !c.frozen)
+            return false;
+    }
+    return true;
+}
+Scene::ActorId World::HuntTarget() const
+{
+    Scene::ActorId result = 0;
+    float best = 1e9f;
+    for (const auto &m : monsters_)
+        if (m.health > 0 && Active(m.actor))
+        {
+            float distance = Distance(GetPosition(m.actor), GetPosition(player_));
+            if (distance < best)
+            {
+                best = distance;
+                result = m.actor;
+            }
+        }
+    return result;
+}
+bool World::CastSupport()
+{
+    if (IsDead() || !Active(companion_.actor) || companion_.cooldown > 0)
+        return false;
+    Profiler::Scope scope("companion_support_select");
+    Monster *target = nullptr;
+    float best = 8;
+    auto hero = GetPosition(player_);
+    for (auto &m : monsters_)
+    {
+        Profiler::Add("companion_candidates_tested");
+        if (m.health <= 0 || !Active(m.actor) || IsFrozen(GetPosition(m.actor)))
+            continue;
+        auto p = GetPosition(m.actor);
+        float distance = Distance(hero, p);
+        if (distance >= best)
+            continue;
+        bool clear = true;
+        for (int i = 1; i <= 12; ++i)
+        {
+            Profiler::Add("companion_line_of_sight_samples");
+            if (blocked_({hero.x + (p.x - hero.x) * i / 12, hero.y + (p.y - hero.y) * i / 12}))
+            {
+                clear = false;
+                break;
+            }
+        }
+        if (clear)
+        {
+            target = &m;
+            best = distance;
+        }
+    }
+    if (!target)
+    {
+        companion_.cooldown = .25f;
+        return false;
+    }
+    target->weakened = 3;
+    companion_.target = target->actor;
+    companion_.pulse = .5f;
+    companion_.cooldown = 2.4f;
+    Profiler::Add("companion_spells_cast");
+    Profiler::Event("companion_support_cast", "target=" + std::to_string(target->actor));
+    return true;
+}
+void World::UpdateCompanion(float dt, int talking)
+{
+    Profiler::Scope scope("companion_update");
+    if (!Active(companion_.actor))
+        return;
+    companion_.time += dt;
+    companion_.cooldown = std::max(0.f, companion_.cooldown - dt);
+    companion_.pulse = std::max(0.f, companion_.pulse - dt);
+    companion_.wary = phase_ >= Phase::Evacuation && Distance(GetPosition(player_), {0, -16}) < 42;
+    float radius = companion_.wary ? .42f : .85f;
+    auto &actor = *scene_->Find(companion_.actor);
+    actor.SetLocalPosition({-radius + std::cos(companion_.time * .9f) * radius * .3f,
+                            .15f + std::sin(companion_.time * .9f) * radius * .3f});
+    actor.SetLocalElevation(42 + std::sin(companion_.time * (companion_.wary ? 1.2f : 2.7f)) * 3);
+    if (talking < 0)
+        CastSupport();
 }
 int World::RecordCount() const
 {
@@ -776,6 +965,7 @@ bool World::RunTests(std::string &report)
     if (!check(Heal(WorldLayout::Cleric) && health_ == 100, "cleric healing"))
         return false;
     scene_->Find(player_)->SetWorldPosition(GetPosition(citizens_[25].actor));
+    GrantReward(10, 0);
     int money = coins_;
     if (!check(Buy(25) && coins_ == money - 5, "remote merchant remains open"))
         return false;
@@ -805,7 +995,11 @@ bool World::RunTests(std::string &report)
     if (!check(found, "combat approach"))
         return false;
     scene_->Find(player_)->SetWorldPosition(hero);
-    for (int i = 0; i < 3; ++i)
+    companion_.cooldown = 0;
+    if (!check(CastSupport() && m.weakened > 0 && !CastSupport() && m.health == 36,
+               "nonlethal support and cooldown"))
+        return false;
+    for (int i = 0; i < 2; ++i)
     {
         attackCooldown_ = 0;
         Attack({old.x - hero.x, old.y - hero.y});
@@ -835,7 +1029,8 @@ bool World::RunTests(std::string &report)
             return false;
     report +=
         "PASS: 5x20 residents, 100 corridor monsters, physical-only rumor propagation, arrival receipts, "
-        "local mood, remote trade, 3-second displaced respawn, stable actor and loot pools.\n";
+        "local mood, remote trade, support slow/armor break, 3-second displaced respawn, stable actor and "
+        "loot pools.\n";
     return true;
 }
 } // namespace Village

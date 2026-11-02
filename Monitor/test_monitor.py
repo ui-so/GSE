@@ -49,6 +49,16 @@ class Tests(unittest.TestCase):
             invalid=copy.deepcopy(value);invalid['worlds'][0]['atmosphere'][key]=bad
             with self.assertRaises(ValueError): validate(invalid)
 
+    def test_story_v2(self):
+        value=sample();value['story']=dict(version=2,stage='hunt_road',step=1,steps=17,objective='숲길 마물',
+            contracts_completed=0,contract_kills=1,reward_coins=0,family_rescued=0,carrying_supplies=False,
+            repeatable_contract=False,companion_state='playful',disaster_kind='none')
+        validate(value)
+        for key,bad in [('step',18),('contract_kills',3),('family_rescued',3),('carrying_supplies',1),
+                        ('companion_state','dead_pet'),('disaster_kind','secret_culprit')]:
+            invalid=copy.deepcopy(value);invalid['story'][key]=bad
+            with self.assertRaises(ValueError): validate(invalid)
+
     def test_sessions_order_and_stale(self):
         store=Store();data=sample()
         self.assertEqual(store.receive(data),202)
@@ -109,6 +119,7 @@ def integration(exe, output):
         assert all(not m['worlds'][0]['simulated'] for m in messages.values() if m['active_world_id']=='first_level')
         for m in messages.values():
             validate(m);v=m['worlds'][0]
+            assert m['story']['version']==2 and m['story']['steps']==17
             villages=[w for w in m['worlds'] if w['kind']=='village']
             assert len(villages)==5
             assert all(w['counts']['npc_total']==20 and len(w['npcs'])==20 for w in villages)
@@ -124,6 +135,43 @@ def integration(exe, output):
         assert any(n['state']=='frozen' for m in messages.values() for n in m['worlds'][0]['npcs'])
         (output/'received-snapshots.json').write_text(json.dumps(list(messages.values()),ensure_ascii=False,indent=2),encoding='utf-8')
         print(f'PASS: {len(messages)} real C++ snapshots, 5 villages x 20 NPCs, 100 corridor mobs, local moods, physical rumor receipts, 15 wildlife, four phases and world switch')
+    finally:server.shutdown();server.server_close();thread.join()
+
+
+def story_integration(exe,output):
+    output.mkdir(parents=True,exist_ok=True)
+    server=Server(8765)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with tempfile.TemporaryDirectory() as cwd:
+            process=subprocess.Popen([str(exe),'--story-monitor-test'],cwd=cwd)
+            deadline=time.monotonic()+60;messages={}
+            try:
+                while time.monotonic()<deadline:
+                    for session in server.store.snapshot()['sessions']:
+                        snapshot=session['snapshot'];messages[snapshot['sequence']]=snapshot
+                    if process.poll() is not None:break
+                    time.sleep(.1)
+                if process.poll() is None:raise AssertionError('story producer timeout')
+                assert process.returncode==0,process.returncode
+            finally:
+                if process.poll() is None:process.kill();process.wait()
+        ordered=sorted(messages.values(),key=lambda m:m['sequence'])
+        assert len(ordered)>=16,len(ordered)
+        for message in ordered:validate(message)
+        stories=[m['story'] for m in ordered]
+        assert stories[0]['step']==0 and stories[-1]['step']==17
+        assert all(s['disaster_kind']=='none' for s in stories if s['contracts_completed']<2)
+        assert any(s['disaster_kind']=='ordinary_signs' and s['companion_state']=='playful' for s in stories)
+        assert any(s['disaster_kind']=='rapid' and s['companion_state']=='wary' for s in stories)
+        assert any(s['carrying_supplies'] for s in stories)
+        assert any(s['step']==11 and s['family_rescued']==0 for s in stories)
+        assert any(s['family_rescued']==2 for s in stories)
+        assert any(s['step']==17 and s['repeatable_contract'] and s['contracts_completed']==2 for s in stories)
+        assert stories[-1]['contracts_completed']==3 and stories[-1]['reward_coins']==37
+        assert ordered[-1]['active_world_id']=='pine_wharf'
+        (output/'story-snapshots.json').write_text(json.dumps(ordered,ensure_ascii=False,indent=2),encoding='utf-8')
+        print(f'PASS: {len(stories)} real v2 story snapshots: paid jobs first, parcel, ordinary/rapid distinction, living companion, physical rescue, next-village repeat work')
     finally:server.shutdown();server.server_close();thread.join()
 
 
@@ -161,7 +209,9 @@ def reconnect(exe, output):
 
 if __name__=='__main__':
     import sys
-    if len(sys.argv)>1 and sys.argv[1]=='--reconnect':
+    if len(sys.argv)>1 and sys.argv[1]=='--story-integration':
+        story_integration(Path(sys.argv[2]).resolve(),Path(sys.argv[3]).resolve())
+    elif len(sys.argv)>1 and sys.argv[1]=='--reconnect':
         reconnect(Path(sys.argv[2]).resolve(),Path(sys.argv[3]).resolve())
     elif len(sys.argv)>1 and sys.argv[1]=='--integration':
         integration(Path(sys.argv[2]).resolve(),Path(sys.argv[3]).resolve())

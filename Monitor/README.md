@@ -85,3 +85,12 @@ v1 기존 키를 유지하며 다음 선택 필드를 추가한다.
 - NPC `home_village/current_village/destination`, `courier`(boolean), `rumor_mask`(0~15): 소속·현재 구역·목적지·순회자·소지 소식. 목적지가 없으면 빈 문자열이다.
 
 분위기 계산식·기준 이동 시간은 `Docs/REGIONAL_WORLD.md`에 있다. 소문은 실제 NPC가 광장에 도착해야 다른 마을의 소식판에 반영되며, 분위기 및 소식은 저장되지 않는다. JSON 확장 필드가 없는 이전 v1 발신기도 계속 수신한다.
+
+
+## 스토리 v2 진행 관측 (2026-11-02)
+
+기존 JSON v1 계약을 유지하며 최상위 선택 필드 `story`를 추가한다. `version=2`, `stage`는안정적인 영문 단계 키, `step/steps`는0~17/17, `objective`는한국어 목표다. `contracts_completed`, `contract_kills`(0~2), `reward_coins`, `carrying_supplies`(boolean), `family_rescued`(0~2), `repeatable_contract`(boolean)을 보고한다.
+
+`companion_state`는playful/wary(동료의 실제 현재 반응), `disaster_kind`는none/ordinary_signs/rapid(잿빛 여울 사건의 종류)다. 다른 마을로 이동하면 동료는다시 편안해져도 잿빛 여울의 사건 이력은rapid로남는다. 이는원격 마을이 물리적으로 탈색됐음을 뜻하지 않는다. 마을 phase 키는기존 daily/warning/evacuation/stillness를유지하며 UI에서일반 징후/급속 탈색의 긴급 대피를구분한다.
+
+`story`가없는 기존 v1 발신기도 수신한다. 자세한 단계와 수치는`Docs/STORY_V2_PLAYTHROUGH.md`를참고한다.

@@ -3,8 +3,8 @@ const $ = id => document.getElementById(id);
 const labels = {
     calm : "평온", alert : "경계", anxious : "불안", mourning : "애도",
     daily : "평온한 일상",
-    warning : "탈색 징후",
-    evacuation : "주민 대피",
+    warning : "일반 탈색 징후 · 대피 준비",
+    evacuation : "급속 탈색 · 긴급 대피",
     stillness : "국소 정지",
     hunting : "사냥 진행",
     complete : "사냥 완료",
@@ -88,6 +88,17 @@ function render()
                 e.append(node("span", title), node("strong", value));
                 return e;
             }));
+    const selectedSessions=[...new Set(selected.map(x=>x.s))];
+    $("stories").replaceChildren(...selectedSessions.filter(s=>s.snapshot.story).map(s=>{
+        const p=s.snapshot.story, card=node("article",undefined,"world story");
+        card.append(badge(s.stale?"마지막 관측값":"서장 진행"),node("h3",p.objective),
+            node("p",`단계 ${p.step} / ${p.steps} · 완료 의뢰 ${p.contracts_completed} · 누적 보수 ${p.reward_coins}닢`),
+            node("p",`진행 의뢰 처치 ${p.contract_kills} / 2 · 보급품 ${p.carrying_supplies?"소지":"없음"} · 가족 구조 ${p.family_rescued} / 2`),
+            node("p",`여우 동료: ${p.companion_state==="wary"?"바짝 붙어 경계":"장난스럽게 동행"} · 잿빛 여울: ${
+                ({none:"평온",ordinary_signs:"익숙한 탈색 징후",rapid:"비정상적인 급속 탈색"})[p.disaster_kind]}`),
+            node("div",`${p.stage} · ${s.snapshot.session_id}`,"meta"));
+        return card;
+    }));
     $("worlds").replaceChildren(...selected.map(({s, w}) => {
         const e = node("article", undefined, "world");
         const active = w.world_id === s.snapshot.active_world_id;

@@ -120,3 +120,16 @@ HTTP 전송은 전용 스레드에서 수행한다. 미전송 슬롯은 1개이�
 `rumor_contacts_tested`는 위치/소식 비교 횟수다. `rumor_contact`는 지식이 실제로 달라진 순회자 도착/현지 소식판 교환 CPU 구간, `rumor_deliveries`는 새로운 마을 소문 도착 건수다. `rumor_delivered` 이벤트는 `village=N;rumor=N;carrier=ActorId`이며 메시지 본문이나 개인정보를 기록하지 않는다. `village_atmosphere`는0.5초 간격 분위기 집계 CPU다. 각 Scope는 inclusive라 village_simulation과 합산하지 않는다.
 
 `--benchmark --tutorial`은 기존 초기 마을과 비교한다. `--benchmark-region --quiet-profile --validate-render`는60초 순회를 준비한 뒤 숲길에서140프레임을 기록한다. 준비 갱신은 프레임 시작 전 구간이므로 정상 프레임 평균에 포함되지 않는다. `--capture-region`의 여러 뷰·가속 갱신은 성능 비교로 해석하지 않는다.
+
+
+## 스토리 v2 · 동료와 실제 대피 (2026-11-02)
+
+현재 서장은0~17단계다. `journey_stage_changed` detail은 v2 영문 단계 키이며 이전 0~11 숫자와 구분한다. `contract_reward_claimed`는 완료 의뢰 수와 보수, `companion_support_cast`는 대상 Actor, `npc_rescued`는 집결한 Actor다.
+
+`companion_update`는 동료 위치/반응/자동 지원, 그 안의 `companion_support_select`는 재사용 대기 완료 후에만 대상/시야를 탐색한다. `companion_candidates_tested`, `companion_line_of_sight_samples`, `companion_spells_cast`로 작업량과 발동을 확인한다. `companion_render_submit`는 캐시한 여우 메시·광휘·연결선 제출이며 `companion_models_drawn`은 모델 제출 횟수다. 새 여우/용병 장비는 기존 AssetCache/정적 메시 경로를 사용한다.
+
+`npc_escort_update`는 안내 대상만 경로를 0.8초 간격으로 갱신하고, `npc_rescues_completed`는 실제 집결 완료 횟수다. `desaturation_overlay_rebuild`는 반경이 0.25m 경계를 넘을 때만 작은 국소 지형 오버레이를 다시 만들고 `desaturation_overlay_tiles`에작업량을 기록한다. 나머지 대규모 지형 캐시를 재생성하지 않는다. `contract_rewards_claimed`는 실제 보수 지급 횟수다. 새 counter는 프레임마다 0에서 시작하며 Scope는 inclusive다.
+
+정상 비교는 수정 전/후 동일한 `--benchmark --tutorial --quiet-profile --validate-render`, 시드42·1280×800·후처리 켬·모니터 끔에서 진행한다. 급속 확산/대피/전투는 짧은 초기 화면 벤치마크에 모두 포함되지 않으므로 가속 캡처와 실제 플레이 로그의 해당 구간을 함께 확인한다.
+
+`--benchmark --tutorial --benchmark-rapid --quiet-profile --validate-render`는 2초 진행한 국소 급속 확산에서140프레임을 측정한다. `story_contracts_completed`, `story_family_rescued`, `companion_wary`, `desaturation_radius_m`는 프레임별 현재 값이다. `--story-monitor-test`는 실제 상호작용 시나리오를 진행하며18개 체크포인트를 모니터에 보낸다.
