@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #include "RenderBatch.h"
 #include "DrawStats.h"
 #include "Profiler.h"
@@ -273,15 +275,15 @@ std::vector<Vertex> Convert(const std::vector<Vertex> &input, GLenum mode)
 }
 bool MakeProgram()
 {
-    auto createShader = reinterpret_cast<CreateShader>(wglGetProcAddress("glCreateShader"));
-    auto source = reinterpret_cast<ShaderSource>(wglGetProcAddress("glShaderSource"));
-    auto compile = reinterpret_cast<ShaderAction>(wglGetProcAddress("glCompileShader"));
-    auto status = reinterpret_cast<GetStatus>(wglGetProcAddress("glGetShaderiv"));
-    auto createProgram = reinterpret_cast<CreateProgram>(wglGetProcAddress("glCreateProgram"));
-    auto attach = reinterpret_cast<Attach>(wglGetProcAddress("glAttachShader"));
-    auto link = reinterpret_cast<ShaderAction>(wglGetProcAddress("glLinkProgram"));
-    auto programStatus = reinterpret_cast<GetStatus>(wglGetProcAddress("glGetProgramiv"));
-    auto bindAttrib = reinterpret_cast<BindAttrib>(wglGetProcAddress("glBindAttribLocation"));
+    auto createShader = reinterpret_cast<CreateShader>(glfwGetProcAddress("glCreateShader"));
+    auto source = reinterpret_cast<ShaderSource>(glfwGetProcAddress("glShaderSource"));
+    auto compile = reinterpret_cast<ShaderAction>(glfwGetProcAddress("glCompileShader"));
+    auto status = reinterpret_cast<GetStatus>(glfwGetProcAddress("glGetShaderiv"));
+    auto createProgram = reinterpret_cast<CreateProgram>(glfwGetProcAddress("glCreateProgram"));
+    auto attach = reinterpret_cast<Attach>(glfwGetProcAddress("glAttachShader"));
+    auto link = reinterpret_cast<ShaderAction>(glfwGetProcAddress("glLinkProgram"));
+    auto programStatus = reinterpret_cast<GetStatus>(glfwGetProcAddress("glGetProgramiv"));
+    auto bindAttrib = reinterpret_cast<BindAttrib>(glfwGetProcAddress("glBindAttribLocation"));
     if (!createShader || !source || !compile || !status || !createProgram || !attach || !link ||
         !programStatus || !bindAttrib)
         return false;
@@ -390,7 +392,7 @@ Glyph LoadGlyph(HDC dc, wchar_t ch)
 bool Initialize()
 {
 #define LOAD(v, t, n)                                                                                        \
-    v = reinterpret_cast<t>(wglGetProcAddress(n));                                                           \
+    v = reinterpret_cast<t>(glfwGetProcAddress(n));                                                          \
     if (!v)                                                                                                  \
     return false
     LOAD(genBuffers, GenBuffers, "glGenBuffers");

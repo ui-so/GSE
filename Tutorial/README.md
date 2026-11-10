@@ -57,7 +57,7 @@ Windows x64용 AshenShore.exe를 실행한다. 외부 에셋이나 DLL 복사 �
 - Visuals.h / Visuals.cpp: 재질 텍스처, 스프라이트 시트, 부드러운 그림자 텍스처, 후처리 셰이더와 GPU 자원 정리.
 - Tutorial.vcxproj 및 build.cmd에 Visuals.cpp를 포함했다. 기존 SimpleGame 샘플은 보존했다.
 
-Tutorial/build.cmd를 실행하면 Tutorial/build/AshenShore.exe를 생성한다. Visual Studio 2022 C++ x64 도구와 Windows SDK가 필요하다. Tutorial.sln도 기존 경로에서 열 수 있다. 이 환경에서는 MSBuild의 사용자 SDK 디렉터리 접근 제한이 있어 검증된 build.cmd로 빌드했다.
+Tutorial/build.cmd를 실행하면 Tutorial/build/AshenShore.exe를 생성한다. Visual Studio 2022 C++ x64 도구와 Windows SDK가 필요하다. Tutorial.sln도 기존 경로에서 열 수 있다. 두 빌드 경로 모두 같은 MSBuild 프로젝트를 사용하며, 포함된 GLFW 소스를 정적으로 링크한다.
 
 후처리는 OpenGL 셰이더 기능이 필요하며 초기화 실패 시 기본 장면 렌더링을 유지한다. 현재 Intel Iris Plus의 OpenGL 4.6에서 후처리 활성화를 확인했다. 렌더러는 프로토타입용 OpenGL 호환 모드다.
 

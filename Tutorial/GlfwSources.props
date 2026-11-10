@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <GlfwRoot>$(MSBuildThisFileDirectory)..\ThirdParty\glfw\</GlfwRoot>
+  </PropertyGroup>
+  <!-- GLFW 3.5.1 Windows source set from upstream src/CMakeLists.txt. -->
+  <ItemGroup>
+    <ClCompile Include="$(GlfwRoot)src\context.c;
+               $(GlfwRoot)src\init.c;
+               $(GlfwRoot)src\input.c;
+               $(GlfwRoot)src\monitor.c;
+               $(GlfwRoot)src\platform.c;
+               $(GlfwRoot)src\vulkan.c;
+               $(GlfwRoot)src\window.c;
+               $(GlfwRoot)src\egl_context.c;
+               $(GlfwRoot)src\osmesa_context.c;
+               $(GlfwRoot)src\null_init.c;
+               $(GlfwRoot)src\null_monitor.c;
+               $(GlfwRoot)src\null_window.c;
+               $(GlfwRoot)src\null_joystick.c;
+               $(GlfwRoot)src\win32_module.c;
+               $(GlfwRoot)src\win32_time.c;
+               $(GlfwRoot)src\win32_thread.c;
+               $(GlfwRoot)src\win32_init.c;
+               $(GlfwRoot)src\win32_joystick.c;
+               $(GlfwRoot)src\win32_monitor.c;
+               $(GlfwRoot)src\win32_window.c;
+               $(GlfwRoot)src\wgl_context.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <ObjectFileName>$(IntDir)glfw_%(Filename).obj</ObjectFileName>
+      <PreprocessorDefinitions>_GLFW_WIN32;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
+  </ItemGroup>
+</Project>

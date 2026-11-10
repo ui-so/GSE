@@ -12,7 +12,7 @@
 2. `Tutorial/build.cmd`를 실행합니다.
 3. 생성된 `Tutorial/build/AshenShore.exe`를 실행합니다.
 
-또는 `Tutorial.sln`을 Visual Studio에서 열어 x64 구성으로 빌드합니다. 외부 이미지·셰이더 파일이나 FreeGLUT/GLEW DLL은 필요하지 않습니다. 실행 파일과 임시 빌드 결과는 Git에 포함하지 않습니다.
+또는 `Tutorial.sln`을 Visual Studio에서 열어 x64 구성으로 빌드합니다. 게임은 저장소에 포함된 GLFW 3.5.1 소스를 정적으로 링크합니다. GLFW 설치, DLL 복사, CMake 또는 빌드 중 다운로드가 필요하지 않습니다. 외부 이미지·셰이더 파일도 필요하지 않습니다. 실행 파일과 임시 빌드 결과는 Git에 포함하지 않습니다.
 
 ## 첫 레벨 추가 기능
 
@@ -33,6 +33,7 @@
 - [게임 개발 기본 지침](GAME_GUIDELINES.md)
 - [초기 기획서](INITIAL_GAME_PLAN.md)
 - [튜토리얼 기능·구조·조작·검증 안내](Tutorial/README.md)
+- [GLFW 빌드 환경과 성능 검증](Docs/GLFW_MIGRATION.md)
 
 `AshenShore.exe --self-test`로 퀘스트·이동·주민·야생동물 검사를 실행할 수 있습니다. `--capture`는 실제 렌더링 화면을 현재 작업 디렉터리에 저장합니다. `--benchmark`는 그리기 시간을 측정합니다.
 

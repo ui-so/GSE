@@ -1,14 +1,12 @@
 @echo off
 setlocal
-for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
-if not defined VSROOT exit /b 1
-call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" >nul
-if errorlevel 1 exit /b 1
+for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find MSBuild\Current\Bin\MSBuild.exe`) do set "MSBUILD=%%i"
+if not defined MSBUILD (
+    echo MSBuild and the Visual Studio C++ workload were not found.
+    exit /b 1
+)
 pushd "%~dp0"
-if not exist build mkdir build
-rc /nologo /fo build\JournalAssets.res JournalAssets.rc
-if errorlevel 1 (popd & exit /b 1)
-cl /nologo /std:c++17 /EHsc /utf-8 /W4 /WX /MT /O2 /DUNICODE /D_UNICODE Tutorial.cpp Visuals.cpp FirstLevel.cpp LevelView.cpp AssetCache.cpp SceneModels.cpp Actor.cpp SceneGraph.cpp DrawStats.cpp Profiler.cpp RenderBatch.cpp TerrainBatch.cpp Village.cpp WorldLayout.cpp Monitor.cpp Journey.cpp JournalArt.cpp build\JournalAssets.res /Fo:build\ /Fe:build\AshenShore.exe /link /SUBSYSTEM:WINDOWS
+"%MSBUILD%" Tutorial.vcxproj /nologo /m /p:Configuration=Release /p:Platform=x64 /p:OutDir=build/
 set "RESULT=%ERRORLEVEL%"
 popd
 exit /b %RESULT%

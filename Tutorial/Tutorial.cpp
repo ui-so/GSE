@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <windows.h>
 #include <gl/GL.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #include "DrawStats.h"
 #include "RenderBatch.h"
 #include "Profiler.h"
@@ -57,7 +60,7 @@ float length(V v)
 const C ink{.76f, .8f, .75f}, gold{.88f, .70f, .39f}, teal{.36f, .83f, .79f};
 int width = 1280, height = 800;
 float elapsed = 0, worldTime = 0;
-bool keys[256]{}, paused = false, active = true, running = true, finished = false;
+bool keys[GLFW_KEY_LAST + 1]{}, paused = false, active = true, running = true, finished = false;
 V camera{0, 2};
 Scene::SceneGraph tutorialScene;
 Scene::ActorId tutorialPlayer = 0, terrainActor = 0, particlesActor = 0, markerActor = 0, hudActor = 0;
@@ -94,11 +97,7 @@ int facing = 0;
 float actionTime = 0;
 bool moving = false, postEnabled = true;
 HDC dc;
-HGLRC rc;
-HFONT font;
-HGDIOBJ oldFont;
-HWND windowHandle;
-std::map<wchar_t, GLuint> glyphs;
+bool iconified = false;
 std::wstring speaker, dialog;
 FirstLevel::World firstWorld;
 bool firstLevelMode = false;
@@ -758,7 +757,7 @@ void CloseJournal()
     journalOpen = false;
     if (auto actor = tutorialScene.Find(journalActor))
         actor->SetVisible(false);
-    std::fill(keys, keys + 256, false);
+    std::fill(keys, std::end(keys), false);
 }
 void OpenJournal(int page)
 {
@@ -767,7 +766,7 @@ void OpenJournal(int page)
     if (auto actor = tutorialScene.Find(journalActor))
         actor->SetVisible(true);
     moving = false;
-    std::fill(keys, keys + 256, false);
+    std::fill(keys, std::end(keys), false);
 }
 void SyncJourneyPhase()
 {
@@ -868,8 +867,9 @@ void update(float dt)
         worldTime += dt;
         float x = float(keys['D'] - keys['A']), y = float(keys['S'] - keys['W']);
         FirstLevel::Position previous = firstWorld.GetPosition(firstWorld.Player().actor);
-        firstWorld.Update(dt, {(x + y) * .70710678f, (y - x) * .70710678f}, keys[VK_SHIFT]);
-        if (keys[VK_SPACE])
+        firstWorld.Update(dt, {(x + y) * .70710678f, (y - x) * .70710678f},
+                          (keys[GLFW_KEY_LEFT_SHIFT] || keys[GLFW_KEY_RIGHT_SHIFT]));
+        if (keys[GLFW_KEY_SPACE])
             firstWorld.Attack();
         auto position = firstWorld.GetPosition(firstWorld.Player().actor);
         moving = std::abs(position.x - previous.x) + std::abs(position.y - previous.y) > .0001f;
@@ -897,7 +897,7 @@ void update(float dt)
         elapsed += dt;
     if (!dialog.empty() || villageWorld.IsDead())
         return;
-    if (keys[VK_SPACE])
+    if (keys[GLFW_KEY_SPACE])
         villageWorld.Attack(villageFacing);
     V d{float(keys['D'] - keys['A']), float(keys['S'] - keys['W'])};
     if (ActorActive(tutorialPlayer) && length(d) > 0)
@@ -907,7 +907,7 @@ void update(float dt)
         d = d * (1 / length(d));
         V move{(d.x + d.y) * .70710678f, (d.y - d.x) * .70710678f};
         villageFacing = {move.x, move.y};
-        move = move * (dt * (keys[VK_SHIFT] ? 5.0f : 3.1f));
+        move = move * (dt * ((keys[GLFW_KEY_LEFT_SHIFT] || keys[GLFW_KEY_RIGHT_SHIFT]) ? 5.0f : 3.1f));
         V q = PlayerPosition() + V{move.x, 0};
         if (!blocked(q))
             SetPlayerPosition(q);
@@ -1424,7 +1424,7 @@ void reset()
         camera = {.5f, .5f};
         paused = false;
         moving = false;
-        std::fill(keys, keys + 256, false);
+        std::fill(keys, std::end(keys), false);
         return;
     }
     initWorld();
@@ -1441,7 +1441,7 @@ void reset()
     paused = false;
     dialog.clear();
     talkingNpc = -1;
-    std::fill(keys, keys + 256, false);
+    std::fill(keys, std::end(keys), false);
 }
 void capture(const char *path)
 {
@@ -1522,14 +1522,14 @@ bool RunStoryScenario(bool captureFrames)
             camera = hero;
             villageFacing = {position.x - hero.x, position.y - hero.y};
             int before = villageWorld.Kills();
-            keys[VK_SPACE] = true;
+            keys[GLFW_KEY_SPACE] = true;
             for (int frame = 0; frame < 100 && villageWorld.Kills() == before; ++frame)
             {
                 update(.1f);
                 if (victim == 0 && frame == 0)
                     shot(targetKills <= 2 ? "story-v2-companion-combat.bmp" : "story-v2-repeat-combat.bmp");
             }
-            keys[VK_SPACE] = false;
+            keys[GLFW_KEY_SPACE] = false;
             if (villageWorld.Kills() == before)
                 return false;
         }
@@ -1684,140 +1684,171 @@ void CaptureStory()
         validationExit = 5;
     running = false;
 }
-LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
+void OnKey(GLFWwindow *, int w, int, int action, int)
 {
-    switch (m)
+    if (w < 0 || w > GLFW_KEY_LAST)
+        return;
+    if (action == GLFW_RELEASE)
     {
-    case WM_CLOSE:
-        running = false;
-        return 0;
-    case WM_SIZE:
-        width = std::max(640, int(LOWORD(l)));
-        height = std::max(480, int(HIWORD(l)));
-        return 0;
-    case WM_GETMINMAXINFO:
-        ((MINMAXINFO *)l)->ptMinTrackSize = {1000, 720};
-        return 0;
-    case WM_ACTIVATE:
-        active = LOWORD(w) != WA_INACTIVE;
-        if (!active)
-            std::fill(keys, keys + 256, false);
-        return 0;
-    case WM_KEYUP:
-        if (w < 256)
-            keys[w] = false;
-        return 0;
-    case WM_KEYDOWN:
-        if (w < 256)
-            keys[w] = true;
-        if (l & (1 << 30))
-            return 0;
-        if (journalOpen)
-        {
-            if (w == 'J' || w == 'P' || w == 'E' || w == VK_ESCAPE)
-                CloseJournal();
-            else if (w == VK_LEFT)
-                journalPage = (journalPage + 2) % 3;
-            else if (w == VK_RIGHT)
-                journalPage = (journalPage + 1) % 3;
-            else if (w >= '1' && w <= '3')
-                journalPage = int(w - '1');
-            return 0;
-        }
-        if (w == VK_F1)
-        {
-            firstLevelMode = !firstLevelMode;
-            dialog.clear();
-            paused = false;
-            std::fill(keys, keys + 256, false);
-            if (firstLevelMode)
-            {
-                auto p = firstWorld.GetPosition(firstWorld.Player().actor);
-                camera = {p.x, p.y};
-            }
-            else
-                reset();
-            return 0;
-        }
+        keys[w] = false;
+        return;
+    }
+    if (action != GLFW_PRESS)
+        return;
+    keys[w] = true;
+    if (journalOpen)
+    {
+        if (w == 'J' || w == 'P' || w == 'E' || w == GLFW_KEY_ESCAPE)
+            CloseJournal();
+        else if (w == GLFW_KEY_LEFT)
+            journalPage = (journalPage + 2) % 3;
+        else if (w == GLFW_KEY_RIGHT)
+            journalPage = (journalPage + 1) % 3;
+        else if (w >= '1' && w <= '3')
+            journalPage = int(w - '1');
+        return;
+    }
+    if (w == GLFW_KEY_F1)
+    {
+        firstLevelMode = !firstLevelMode;
+        dialog.clear();
+        paused = false;
+        std::fill(keys, std::end(keys), false);
         if (firstLevelMode)
         {
-            if (w == VK_ESCAPE)
-            {
-                paused = !paused;
-                std::fill(keys, keys + 256, false);
-            }
-            else if (w == VK_F2)
-                postEnabled = !postEnabled;
-            else if (w == 'Q' && paused)
-                running = false;
-            else if (w == 'R' && firstWorld.IsDead())
-            {
-                firstWorld.Respawn();
-                camera = {.5f, .5f};
-            }
-            else if (w == 'R' && paused)
-                reset();
-            else if (!paused)
-            {
-                if (w == 'E')
-                    firstWorld.Pickup();
-                else if (w == 'Q')
-                    firstWorld.UsePotion();
-                else if (w == '1')
-                    firstWorld.SpendPoint(FirstLevel::Stat::Strength);
-                else if (w == '2')
-                    firstWorld.SpendPoint(FirstLevel::Stat::Vitality);
-                else if (w == '3')
-                    firstWorld.SpendPoint(FirstLevel::Stat::Guard);
-            }
-            return 0;
+            auto p = firstWorld.GetPosition(firstWorld.Player().actor);
+            camera = {p.x, p.y};
         }
-        if (w == VK_ESCAPE)
+        else
+            reset();
+        return;
+    }
+    if (firstLevelMode)
+    {
+        if (w == GLFW_KEY_ESCAPE)
         {
             paused = !paused;
-            std::fill(keys, keys + 256, false);
+            std::fill(keys, std::end(keys), false);
         }
-        else if (w == VK_F2)
+        else if (w == GLFW_KEY_F2)
             postEnabled = !postEnabled;
-        else if (w == 'R' && villageWorld.IsDead())
-        {
-            villageWorld.Respawn();
-            camera = PlayerPosition();
-        }
-        else if (w == VK_F3 && !paused)
-        {
-            if (journey.RequiredPhase() >= Village::Phase::Warning)
-                villageWorld.AdvanceEvent();
-            else
-                openDialog(L"의뢰 수첩",
-                           L"먼저 일상 의뢰 두 건을 마치고 풍경을 기록하세요. 사건은 그 뒤에 시작됩니다.");
-        }
-        else if (w == 'F' && !paused && dialog.empty())
-            villageWorld.CastSupport();
-        else if (w == 'J' && !paused && !villageWorld.IsDead())
-            OpenJournal(journalPage);
-        else if (w == 'P' && !paused && dialog.empty())
-            RecordLandscape();
-        else if (w == 'Q' && !paused)
-            villageWorld.UsePotion();
-        else if (w == '1' && !paused && !dialog.empty())
-        {
-            villageWorld.Buy(talkingNpc);
-        }
-        else if (w == '2' && !paused && !dialog.empty())
-        {
-            villageWorld.Heal(talkingNpc);
-        }
-        else if (w == 'E' && !paused)
-            interact();
-        else if (w == 'R' && (paused || finished || villageWorld.GetPhase() == Village::Phase::Stillness))
-            reset();
         else if (w == 'Q' && paused)
             running = false;
-        return 0;
+        else if (w == 'R' && firstWorld.IsDead())
+        {
+            firstWorld.Respawn();
+            camera = {.5f, .5f};
+        }
+        else if (w == 'R' && paused)
+            reset();
+        else if (!paused)
+        {
+            if (w == 'E')
+                firstWorld.Pickup();
+            else if (w == 'Q')
+                firstWorld.UsePotion();
+            else if (w == '1')
+                firstWorld.SpendPoint(FirstLevel::Stat::Strength);
+            else if (w == '2')
+                firstWorld.SpendPoint(FirstLevel::Stat::Vitality);
+            else if (w == '3')
+                firstWorld.SpendPoint(FirstLevel::Stat::Guard);
+        }
+        return;
     }
-    return DefWindowProcW(h, m, w, l);
+    if (w == GLFW_KEY_ESCAPE)
+    {
+        paused = !paused;
+        std::fill(keys, std::end(keys), false);
+    }
+    else if (w == GLFW_KEY_F2)
+        postEnabled = !postEnabled;
+    else if (w == 'R' && villageWorld.IsDead())
+    {
+        villageWorld.Respawn();
+        camera = PlayerPosition();
+    }
+    else if (w == GLFW_KEY_F3 && !paused)
+    {
+        if (journey.RequiredPhase() >= Village::Phase::Warning)
+            villageWorld.AdvanceEvent();
+        else
+            openDialog(L"의뢰 수첩",
+                       L"먼저 일상 의뢰 두 건을 마치고 풍경을 기록하세요. 사건은 그 뒤에 시작됩니다.");
+    }
+    else if (w == 'F' && !paused && dialog.empty())
+        villageWorld.CastSupport();
+    else if (w == 'J' && !paused && !villageWorld.IsDead())
+        OpenJournal(journalPage);
+    else if (w == 'P' && !paused && dialog.empty())
+        RecordLandscape();
+    else if (w == 'Q' && !paused)
+        villageWorld.UsePotion();
+    else if (w == '1' && !paused && !dialog.empty())
+    {
+        villageWorld.Buy(talkingNpc);
+    }
+    else if (w == '2' && !paused && !dialog.empty())
+    {
+        villageWorld.Heal(talkingNpc);
+    }
+    else if (w == 'E' && !paused)
+        interact();
+    else if (w == 'R' && (paused || finished || villageWorld.GetPhase() == Village::Phase::Stillness))
+        reset();
+    else if (w == 'Q' && paused)
+        running = false;
 }
+
+void OnFramebufferSize(GLFWwindow *, int framebufferWidth, int framebufferHeight)
+{
+    if (framebufferWidth > 0 && framebufferHeight > 0)
+    {
+        width = framebufferWidth;
+        height = framebufferHeight;
+    }
+}
+
+void OnFocus(GLFWwindow *, int focused)
+{
+    active = focused == GLFW_TRUE;
+    if (!active)
+        std::fill(std::begin(keys), std::end(keys), false);
+}
+
+void OnIconify(GLFWwindow *, int minimized)
+{
+    iconified = minimized == GLFW_TRUE;
+}
+
+namespace
+{
+struct DesktopResources
+{
+    GLFWwindow *window = nullptr;
+    HFONT font = nullptr;
+    HGDIOBJ previousFont = nullptr;
+    bool initialized = false;
+
+    ~DesktopResources()
+    {
+        if (dc && previousFont && previousFont != HGDI_ERROR)
+            SelectObject(dc, previousFont);
+        if (font)
+            DeleteObject(font);
+        if (dc)
+        {
+            DeleteDC(dc);
+            dc = nullptr;
+        }
+        if (window)
+            glfwDestroyWindow(window);
+        if (initialized)
+            glfwTerminate();
+    }
+};
+} // namespace
+
 // Grid search uses the actual collision query; validates all quest sites are reachable.
 float routeDistance(V start, V goal)
 {
@@ -2133,7 +2164,7 @@ void PublishMonitoring()
                                     : "wilderness",
                      paused || journalOpen, progress);
 }
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR command, int)
 {
     if (wcsstr(command, L"--self-test"))
     {
@@ -2182,37 +2213,81 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         Monitor::Shutdown();
         return 0;
     }
-    DrawStats::InitializeConsole(wcsstr(command, L"--capture") || wcsstr(command, L"--benchmark"));
-    WNDCLASSW wc{};
-    wc.style = CS_OWNDC;
-    wc.lpfnWndProc = proc;
-    wc.hInstance = instance;
-    wc.lpszClassName = L"GSETutorial";
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    RegisterClassW(&wc);
-    RECT r{0, 0, width, height};
-    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    windowHandle =
-        CreateWindowW(wc.lpszClassName, L"GSE · 잿빛 여울 — 튜토리얼", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                      CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, instance, nullptr);
-    dc = GetDC(windowHandle);
-    PIXELFORMATDESCRIPTOR pf{};
-    pf.nSize = sizeof(pf);
-    pf.nVersion = 1;
-    pf.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pf.iPixelType = PFD_TYPE_RGBA;
-    pf.cColorBits = 32;
-    pf.cAlphaBits = 8;
-    int format = ChoosePixelFormat(dc, &pf);
-    if (!format || !SetPixelFormat(dc, format, &pf))
-        return 1;
-    rc = wglCreateContext(dc);
-    if (!rc || !wglMakeCurrent(dc, rc))
-        return 2;
-    font = CreateFontW(-17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, HANGUL_CHARSET, OUT_DEFAULT_PRECIS,
-                       CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
-    oldFont = SelectObject(dc, font);
-    bool benchmarkMode = wcsstr(command, L"--benchmark") != nullptr;
+    const bool benchmarkMode = wcsstr(command, L"--benchmark") != nullptr;
+    const bool shot = wcsstr(command, L"--capture") != nullptr;
+    const bool windowTest = wcsstr(command, L"--window-test") != nullptr;
+    const bool hidden = benchmarkMode || shot || windowTest;
+    DrawStats::InitializeConsole(hidden);
+    auto windowError = [hidden](const wchar_t *message, int status) {
+        if (!hidden)
+            MessageBoxW(nullptr, message, L"GSE", MB_ICONERROR);
+        return status;
+    };
+    glfwSetErrorCallback([](int code, const char *description) {
+        std::fprintf(stderr, "GLFW error %d: %s\n", code, description);
+    });
+    DesktopResources desktop;
+    desktop.initialized = glfwInit() == GLFW_TRUE;
+    if (!desktop.initialized)
+        return windowError(L"GLFW를 초기화하지 못했습니다.", 1);
+
+    // Request a legacy-compatible context: the renderer uses GLSL 120 and fixed-function GL.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_DEPTH_BITS, 0);
+    glfwWindowHint(GLFW_STENCIL_BITS, 0);
+    glfwWindowHint(GLFW_ALPHA_BITS, 8);
+    desktop.window = glfwCreateWindow(width, height, u8"GSE · 잿빛 여울 — 튜토리얼", nullptr, nullptr);
+    if (!desktop.window)
+        return windowError(L"GLFW에서 호환 OpenGL 창을 만들지 못했습니다. 그래픽 드라이버를 확인하세요.", 2);
+    auto *window = desktop.window;
+    glfwMakeContextCurrent(window);
+    if (glfwGetCurrentContext() != window)
+        return windowError(L"OpenGL 컨텍스트를 활성화하지 못했습니다.", 2);
+    glfwSetWindowSizeLimits(window, 1000, 720, GLFW_DONT_CARE, GLFW_DONT_CARE);
+    glfwSetFramebufferSizeCallback(window, OnFramebufferSize);
+    glfwSetWindowFocusCallback(window, OnFocus);
+    glfwSetWindowIconifyCallback(window, OnIconify);
+    glfwSetKeyCallback(window, OnKey);
+    int framebufferWidth = 0, framebufferHeight = 0;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    OnFramebufferSize(window, framebufferWidth, framebufferHeight);
+
+    // GDI is only the Korean glyph rasterizer; it no longer owns the window or the GL context.
+    dc = CreateCompatibleDC(nullptr);
+    desktop.font =
+        CreateFontW(-17, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, HANGUL_CHARSET, OUT_DEFAULT_PRECIS,
+                    CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Malgun Gothic");
+    if (!dc || !desktop.font)
+        return windowError(L"한글 글꼴을 초기화하지 못했습니다.", 2);
+    desktop.previousFont = SelectObject(dc, desktop.font);
+    if (!desktop.previousFont || desktop.previousFont == HGDI_ERROR)
+        return windowError(L"한글 글꼴을 선택하지 못했습니다.", 2);
+
+    if (windowTest)
+    {
+        glfwSetWindowSize(window, 1100, 740);
+        glfwPollEvents();
+        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        OnKey(window, GLFW_KEY_W, 0, GLFW_PRESS, 0);
+        const bool pressed = keys[GLFW_KEY_W];
+        OnKey(window, GLFW_KEY_W, 0, GLFW_RELEASE, 0);
+        const bool released = !keys[GLFW_KEY_W];
+        OnKey(window, GLFW_KEY_LEFT_SHIFT, 0, GLFW_PRESS, 0);
+        OnFocus(window, GLFW_FALSE);
+        const bool cleared = !active && !keys[GLFW_KEY_LEFT_SHIFT];
+        OnFocus(window, GLFW_TRUE);
+        OnKey(window, GLFW_KEY_ESCAPE, 0, GLFW_PRESS, 0);
+        OnKey(window, GLFW_KEY_ESCAPE, 0, GLFW_REPEAT, 0);
+        const bool resized = framebufferWidth == 1100 && framebufferHeight == 740 &&
+                             width == framebufferWidth && height == framebufferHeight;
+        const bool okay = pressed && released && cleared && paused && resized;
+        std::ofstream report("glfw-window-test.txt");
+        report << (okay ? "PASS" : "FAIL") << " GLFW " << glfwGetVersionString() << "; framebuffer=" << width
+               << "x" << height << "; input=" << (pressed && released && cleared && paused) << "\n";
+        return okay ? 0 : 6;
+    }
     bool profileEnabled = wcsstr(command, L"--no-profile") == nullptr;
     bool profileConsole = wcsstr(command, L"--quiet-profile") == nullptr;
     unsigned profileSeed = (benchmarkMode || wcsstr(command, L"--capture-level"))
@@ -2230,13 +2305,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
                     std::string(profileConsole ? "console=on" : "console=off") +
                         (benchmarkMode ? ";benchmark=on;fixed_step=1/60" : ";benchmark=off") +
                         (wcsstr(command, L"--no-post") ? ";postprocess=off" : ";postprocess=on"));
+    Profiler::Event("window_backend", "glfw");
     if (!RenderBatch::Initialize())
     {
         Profiler::Event("renderer_initialization_failed", "VBO, instancing, or shaders unavailable");
         Profiler::Shutdown();
-        MessageBoxW(nullptr, L"GPU 배칭 렌더러를 초기화하지 못했습니다. OpenGL 드라이버를 확인해 주세요.",
-                    L"GSE", MB_ICONERROR);
-        return 4;
+        return windowError(L"GPU 배칭 렌더러를 초기화하지 못했습니다. OpenGL 드라이버를 확인해 주세요.", 4);
     }
     AssetCache::Initialize();
     Visuals::Initialize();
@@ -2246,7 +2320,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     bool regionalShot = wcsstr(command, L"--capture-region") != nullptr;
     bool storyShot = wcsstr(command, L"--capture-story") != nullptr;
     bool levelShot = wcsstr(command, L"--capture-level") != nullptr;
-    bool shot = wcsstr(command, L"--capture") != nullptr;
     firstLevelMode = levelShot || (!shot && !wcsstr(command, L"--tutorial") &&
                                    (benchmarkMode || wcsstr(command, L"--level1")));
     firstWorld.Generate(profileSeed);
@@ -2278,25 +2351,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     }
     Monitor::Initialize(!wcsstr(command, L"--no-monitor") && !shot &&
                         (!benchmarkMode || wcsstr(command, L"--monitor")));
-    ShowWindow(windowHandle, shot ? SW_HIDE : SW_SHOW);
+    if (!hidden)
+    {
+        glfwShowWindow(window);
+        OnFocus(window, glfwGetWindowAttrib(window, GLFW_FOCUSED));
+    }
     if (wcsstr(command, L"--no-post"))
         postEnabled = false;
-    bool bench = wcsstr(command, L"--benchmark") != nullptr;
+    const bool bench = benchmarkMode;
     int benchFrames = 0;
     double benchTotal = 0;
-    if (bench)
-        ShowWindow(windowHandle, SW_HIDE);
     auto last = std::chrono::steady_clock::now();
-    while (running)
+    while (running && !glfwWindowShouldClose(window))
     {
-        Profiler::BeginFrame();
-        MSG msg;
-        auto inputStart = Profiler::Clock::now();
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+        if (iconified && !hidden)
         {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            glfwWaitEventsTimeout(.1);
+            last = std::chrono::steady_clock::now();
+            continue;
         }
+        Profiler::BeginFrame();
+        auto inputStart = Profiler::Clock::now();
+        glfwPollEvents();
         Profiler::Time(
             "input_dispatch",
             std::chrono::duration<double, std::milli>(Profiler::Clock::now() - inputStart).count());
@@ -2454,7 +2530,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
         }
         {
             Profiler::Scope scope("present_wait");
-            SwapBuffers(dc);
+            glfwSwapBuffers(window);
         }
         if (wcsstr(command, L"--validate-render"))
         {
@@ -2494,13 +2570,5 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command, int)
     LevelView::Shutdown();
     RenderBatch::Shutdown();
     Visuals::Shutdown();
-    for (auto g : glyphs)
-        glDeleteLists(g.second, 1);
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    wglMakeCurrent(nullptr, nullptr);
-    wglDeleteContext(rc);
-    ReleaseDC(windowHandle, dc);
-    DestroyWindow(windowHandle);
     return validationExit;
 }

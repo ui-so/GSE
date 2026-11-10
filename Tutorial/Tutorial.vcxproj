@@ -4,14 +4,23 @@
     <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
   </ItemGroup>
-  <PropertyGroup Label="Globals"><ProjectGuid>{37A8B2E4-729C-493E-B2FC-4D09EFD199BA}</ProjectGuid><Keyword>Win32Proj</Keyword><RootNamespace>AshenShore</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{37A8B2E4-729C-493E-B2FC-4D09EFD199BA}</ProjectGuid><Keyword>Win32Proj</Keyword><PreferredToolArchitecture>x64</PreferredToolArchitecture><RootNamespace>AshenShore</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <PropertyGroup><OutDir>$(ProjectDir)build\$(Configuration)\</OutDir><IntDir>$(ProjectDir)build\obj\$(Configuration)\</IntDir><TargetName>AshenShore</TargetName></PropertyGroup>
-  <ItemDefinitionGroup><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp17</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><RuntimeLibrary>MultiThreaded</RuntimeLibrary><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile><Link><SubSystem>Windows</SubSystem><AdditionalDependencies>opengl32.lib;gdi32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
+  <PropertyGroup><OutDir>$(ProjectDir)build\$(Configuration)\</OutDir><IntDir>$(ProjectDir)build\obj-glfw\$(Configuration)\</IntDir><TargetName>AshenShore</TargetName></PropertyGroup>
+  <ItemDefinitionGroup><ClCompile><WarningLevel>Level4</WarningLevel><LanguageStandard>stdcpp17</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><RuntimeLibrary>MultiThreaded</RuntimeLibrary><PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DebugInformationFormat Condition="'$(Configuration)'=='Release'">None</DebugInformationFormat>
+      <Optimization Condition="'$(Configuration)'=='Release'">MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\ThirdParty\glfw\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile><Link><GenerateDebugInformation Condition="'$(Configuration)'=='Release'">false</GenerateDebugInformation><SubSystem>Windows</SubSystem><AdditionalDependencies>opengl32.lib;gdi32.lib;user32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="Tutorial.cpp" /><ClCompile Include="Journey.cpp" /><ClCompile Include="JournalArt.cpp" /><ClCompile Include="Visuals.cpp" /><ClCompile Include="FirstLevel.cpp" /><ClCompile Include="LevelView.cpp" /><ClCompile Include="AssetCache.cpp" /><ClCompile Include="Profiler.cpp" /><ClCompile Include="Village.cpp" /><ClCompile Include="WorldLayout.cpp" /><ClCompile Include="Monitor.cpp" /><ClCompile Include="TerrainBatch.cpp" /><ClCompile Include="RenderBatch.cpp" /><ClCompile Include="DrawStats.cpp" /><ClCompile Include="Actor.cpp" /><ClCompile Include="SceneGraph.cpp" /><ClCompile Include="SceneModels.cpp" /></ItemGroup>
   <ItemGroup><ClInclude Include="Visuals.h" /><ClInclude Include="Journey.h" /><ClInclude Include="JournalArt.h" /><ClInclude Include="FirstLevel.h" /><ClInclude Include="LevelView.h" /><ClInclude Include="AssetCache.h" /><ClInclude Include="SceneRender.h" /><ClInclude Include="Profiler.h" /><ClInclude Include="Village.h" /><ClInclude Include="WorldLayout.h" /><ClInclude Include="Monitor.h" /><ClInclude Include="TerrainBatch.h" /><ClInclude Include="RenderBatch.h" /><ClInclude Include="DrawStats.h" /><ClInclude Include="Actor.h" /><ClInclude Include="SceneGraph.h" /><ClInclude Include="SceneModels.h" /></ItemGroup>
   <ItemGroup><ResourceCompile Include="JournalAssets.rc" /></ItemGroup>
+  <Import Project="GlfwSources.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="CopyGlfwLicense" AfterTargets="Build">
+    <Copy SourceFiles="$(GlfwRoot)LICENSE.md" DestinationFiles="$(OutDir)GLFW-LICENSE.md" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

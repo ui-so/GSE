@@ -133,3 +133,8 @@ HTTP 전송은 전용 스레드에서 수행한다. 미전송 슬롯은 1개이�
 정상 비교는 수정 전/후 동일한 `--benchmark --tutorial --quiet-profile --validate-render`, 시드42·1280×800·후처리 켬·모니터 끔에서 진행한다. 급속 확산/대피/전투는 짧은 초기 화면 벤치마크에 모두 포함되지 않으므로 가속 캡처와 실제 플레이 로그의 해당 구간을 함께 확인한다.
 
 `--benchmark --tutorial --benchmark-rapid --quiet-profile --validate-render`는 2초 진행한 국소 급속 확산에서140프레임을 측정한다. `story_contracts_completed`, `story_family_rescued`, `companion_wary`, `desaturation_radius_m`는 프레임별 현재 값이다. `--story-monitor-test`는 실제 상호작용 시나리오를 진행하며18개 체크포인트를 모니터에 보낸다.
+
+
+## GLFW 창 백엔드 (2026-11-11)
+
+`window_backend=glfw` 이벤트가 현재 백엔드를 식별한다. `input_dispatch`는 `glfwPollEvents`와 콜백, `present_wait`는 `glfwSwapBuffers`를 포함한다. 일반 실행에서 최소화하면 이벤트를 기다리며 렌더링을 쉬고, 복원 시 대기 시간을 게임 시간에 합산하지 않는다. 벤치마크의 숨김 창은 기존처럼 고정 시간 간격으로 시뮬레이션과 렌더링을 진행한다. 스왑 간격을 강제로 변경하지 않는다.

@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #include <psapi.h>
 #pragma comment(lib, "psapi.lib")
 #include "Profiler.h"
@@ -185,11 +187,11 @@ void Initialize(bool on, bool console, const std::string &scenario, unsigned see
     consoleOutput = console;
     stopping = false;
     writer = std::thread(Writer);
-    queryCounter = reinterpret_cast<QueryCounter>(wglGetProcAddress("glQueryCounter"));
-    genQueries = reinterpret_cast<GenQueries>(wglGetProcAddress("glGenQueries"));
-    deleteQueries = reinterpret_cast<DeleteQueries>(wglGetProcAddress("glDeleteQueries"));
-    getQuery = reinterpret_cast<GetQuery>(wglGetProcAddress("glGetQueryObjectiv"));
-    getQuery64 = reinterpret_cast<GetQuery64>(wglGetProcAddress("glGetQueryObjectui64v"));
+    queryCounter = reinterpret_cast<QueryCounter>(glfwGetProcAddress("glQueryCounter"));
+    genQueries = reinterpret_cast<GenQueries>(glfwGetProcAddress("glGenQueries"));
+    deleteQueries = reinterpret_cast<DeleteQueries>(glfwGetProcAddress("glDeleteQueries"));
+    getQuery = reinterpret_cast<GetQuery>(glfwGetProcAddress("glGetQueryObjectiv"));
+    getQuery64 = reinterpret_cast<GetQuery64>(glfwGetProcAddress("glGetQueryObjectui64v"));
     if (!queryCounter || !genQueries || !deleteQueries || !getQuery || !getQuery64)
     {
         queryCounter = nullptr;

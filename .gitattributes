@@ -3,6 +3,9 @@
 ###############################################################################
 * text=auto
 
+# Preserve the upstream GLFW archive bytes on every platform.
+ThirdParty/glfw/** -text
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #

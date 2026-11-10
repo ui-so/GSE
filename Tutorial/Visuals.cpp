@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <gl/GL.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #include "DrawStats.h"
 #include "RenderBatch.h"
 #include "Profiler.h"
@@ -220,7 +222,7 @@ GLuint shader(GLenum type, const char *src)
 void loadPost()
 {
 #define LOAD(v, t, n)                                                                                        \
-    v = reinterpret_cast<t>(wglGetProcAddress(n));                                                           \
+    v = reinterpret_cast<t>(glfwGetProcAddress(n));                                                          \
     if (!v || reinterpret_cast<uintptr_t>(v) <= 3 || reinterpret_cast<intptr_t>(v) == -1)                    \
     return
     LOAD(createShader, CreateShaderT, "glCreateShader");
@@ -429,12 +431,12 @@ bool Initialize()
     glGenTextures(1, &scene);
     loadPost();
     loadEffects();
-    genFramebuffers = reinterpret_cast<GenFramebuffersT>(wglGetProcAddress("glGenFramebuffers"));
-    bindFramebuffer = reinterpret_cast<BindFramebufferT>(wglGetProcAddress("glBindFramebuffer"));
-    attachTexture = reinterpret_cast<AttachTextureT>(wglGetProcAddress("glFramebufferTexture2D"));
-    checkFramebuffer = reinterpret_cast<CheckFramebufferT>(wglGetProcAddress("glCheckFramebufferStatus"));
-    deleteFramebuffers = reinterpret_cast<DeleteFramebuffersT>(wglGetProcAddress("glDeleteFramebuffers"));
-    activeTexture = reinterpret_cast<ActiveTextureT>(wglGetProcAddress("glActiveTexture"));
+    genFramebuffers = reinterpret_cast<GenFramebuffersT>(glfwGetProcAddress("glGenFramebuffers"));
+    bindFramebuffer = reinterpret_cast<BindFramebufferT>(glfwGetProcAddress("glBindFramebuffer"));
+    attachTexture = reinterpret_cast<AttachTextureT>(glfwGetProcAddress("glFramebufferTexture2D"));
+    checkFramebuffer = reinterpret_cast<CheckFramebufferT>(glfwGetProcAddress("glCheckFramebufferStatus"));
+    deleteFramebuffers = reinterpret_cast<DeleteFramebuffersT>(glfwGetProcAddress("glDeleteFramebuffers"));
+    activeTexture = reinterpret_cast<ActiveTextureT>(glfwGetProcAddress("glActiveTexture"));
     if (genFramebuffers && bindFramebuffer && attachTexture && checkFramebuffer && deleteFramebuffers &&
         activeTexture)
     {
