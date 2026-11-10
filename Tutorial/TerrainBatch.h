@@ -7,6 +7,10 @@ struct Tile
     int x, y, material;
     float variation = 1;
 };
+struct Lake
+{
+    float x, y, radiusX, radiusY;
+};
 struct Chunk
 {
     int material;
@@ -16,7 +20,7 @@ struct Chunk
 class Map
 {
   public:
-    void Build(const std::vector<Tile> &tiles);
+    void Build(const std::vector<Tile> &tiles, const Lake *lake = nullptr);
     void Draw(int width, int height, float time) const;
     void Clear();
     bool Empty() const

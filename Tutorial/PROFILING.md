@@ -28,6 +28,7 @@ python tools/compare_profiles.py before-summary.json after-summary.json
 - 한글 글리프 페이지 아틀라스, 캐릭터 팔레트 아틀라스, 그림자·단색 도형 공유 텍스처, 미니맵 지형 텍스처 캐시.
 - SceneGraph의 하위 트리 경계 합집합·카메라 컬링과 월드 변환 캐시. 정적 배치를 공간 그룹으로 묶는다.
 - 후처리 FBO 직접 렌더, 절반 해상도 블룸, uniform 위치 캐시. FBO 불가 시 기존 화면 복사 경로로 fallback하고 이벤트를 기록한다.
+- 풍경 스프라이트의 색상과 무채색 버전은 단일 아틀라스에 업로드한다. `scenery_atlas_load`와 `scenery_atlas_upload_bytes`는 시작할 때만 기록한다. 물가 암석과 포말은 기존 지형 패스에서 컬링되는 정적 메시다. `terrain_shore_edges_built`는 지형 생성 시에만 기록한다.
 - 튜토리얼 충돌은 4단위 공간 격자 사용. 정적 장애물의 Actor 월드 위치·활성 상태를 시뮬레이션 단계마다 갱신한 스냅샷이며 캐릭터 위치의 별도 원본이 아니다.
 - 매 프레임 고정 Sleep(8) 제거. GPU 드라이버의 화면 동기화 정책은 강제로 변경하지 않는다.
 

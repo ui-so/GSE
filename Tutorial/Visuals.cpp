@@ -8,6 +8,7 @@
 #include "RenderBatch.h"
 #include "Profiler.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 #include <cstdint>
@@ -16,11 +17,22 @@
 #include <string>
 #include "Visuals.h"
 #include "AssetCache.h"
+#include "EmbeddedImage.h"
 namespace Visuals
 {
 namespace
 {
 GLuint materials[8]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
+constexpr unsigned ScenerySide = 384;
+constexpr unsigned SceneryCell = ScenerySide + 2;
+constexpr unsigned SceneryAtlasSize = 2 * SceneryCell;
+constexpr int SceneryResourceIds[] = {4210, 4211};
+GLuint sceneryAtlas = 0;
+struct SceneryCellSize
+{
+    unsigned width = 0, height = 0;
+};
+SceneryCellSize scenerySizes[2];
 int sceneW = 0, sceneH = 0;
 using GenFramebuffersT = void(APIENTRY *)(GLsizei, GLuint *);
 using BindFramebufferT = void(APIENTRY *)(GLenum, GLuint);
@@ -81,6 +93,72 @@ float noise(int x, int y)
     n = (n ^ (n >> 13)) * 1274126177u;
     return float(n & 65535) / 65535.f;
 }
+float TextureField(float x, float y, int period)
+{
+    int ix = int(x), iy = int(y);
+    float u = x - ix, v = y - iy;
+    u = u * u * (3 - 2 * u);
+    v = v * v * (3 - 2 * v);
+    float top = noise(ix % period, iy % period) * (1 - u) + noise((ix + 1) % period, iy % period) * u;
+    float bottom =
+        noise(ix % period, (iy + 1) % period) * (1 - u) + noise((ix + 1) % period, (iy + 1) % period) * u;
+    return top * (1 - v) + bottom * v;
+}
+std::array<float, 3> MaterialColor(int type, int x, int y)
+{
+    const float grain = noise(x, y) - .5f;
+    const float field = TextureField(x / 32.f, y / 32.f, 4);
+    const float fleck = TextureField(x / 8.f, y / 8.f, 16);
+    if (type == 0)
+    {
+        const float moss = .50f * field + .50f * std::floor(fleck * 6) / 6;
+        const float blade = fleck > .53f && (x + y / 3) % 13 < 2 && y % 13 < 7 ? .10f : 0;
+        const bool petal = noise(x / 16, y / 16) > .89f && (x % 16 == 5 || x % 16 == 9) && y % 16 == 8;
+        if (petal)
+            return {.56f, .46f, .23f};
+        return {.125f + moss * .19f + blade * .75f + grain * .036f,
+                .23f + moss * .23f + blade + grain * .040f, .17f + moss * .09f + blade * .22f};
+    }
+    if (type == 3)
+    {
+        const float depth = .64f * field + .36f * fleck;
+        return {.026f + depth * .092f, .24f + depth * .34f, .31f + depth * .29f};
+    }
+    const float px = x / 32.f, py = y * (6.f / 128);
+    const int cx = int(px), cy = int(py);
+    float best = 20, next = 20, rock = 0, facing = 0;
+    for (int j = cy - 1; j <= cy + 1; ++j)
+        for (int i = cx - 1; i <= cx + 1; ++i)
+        {
+            int sx = (i + 4) % 4, sy = (j + 6) % 6;
+            float dx = px - (i + .22f + noise(sx + 6, sy) * .56f);
+            float dy = py - (j + .22f + noise(sx, sy + 5) * .56f);
+            float distance = dx * dx + dy * dy;
+            if (distance < best)
+            {
+                next = best;
+                best = distance;
+                rock = noise(sx + 19, sy + 9);
+                facing = dx + dy;
+            }
+            else
+                next = std::min(next, distance);
+        }
+    const float edge = next - best;
+    if (type == 2)
+    {
+        const float cobble = edge > .28f && rock > .60f ? .10f : 0;
+        return {.31f + field * .17f + fleck * .06f + grain * .055f + cobble,
+                .24f + field * .14f + fleck * .05f + grain * .048f + cobble * .9f,
+                .15f + field * .095f + grain * .035f + cobble * .7f};
+    }
+    if (edge < .065f)
+        return {.17f + fleck * .06f, .18f + fleck * .07f, .19f + fleck * .045f};
+    const float bevel = edge < .15f ? (facing < 0 ? .095f : -.09f) : 0;
+    const float moss = fleck > .67f && rock < .46f ? .10f : 0;
+    const float shade = rock * .16f + field * .06f + grain * .035f + bevel - facing * .035f;
+    return {.37f + shade - moss * .4f, .365f + shade + moss * .4f, .33f + shade - moss * .7f};
+}
 GLuint upload(int w, int h, const std::vector<unsigned char> &pixels, bool repeat = false)
 {
     GLuint id;
@@ -106,6 +184,36 @@ void quad(float x, float y, float w, float h, float u, float v, float uw, float 
     RenderBatch::Vertex2f(x, y + h);
     RenderBatch::End();
 }
+void LoadScenery()
+{
+    Profiler::Scope scope("scenery_atlas_load");
+    std::vector<unsigned char> atlas(size_t(SceneryAtlasSize) * SceneryAtlasSize * 4);
+    for (unsigned slot = 0; slot < 2; ++slot)
+    {
+        std::vector<unsigned char> pixels;
+        auto &size = scenerySizes[slot];
+        if (!EmbeddedImage::Decode(SceneryResourceIds[slot], pixels, size.width, size.height, ScenerySide))
+        {
+            size = {};
+            Profiler::Event("scenery_asset_load_failed", std::to_string(SceneryResourceIds[slot]));
+            continue;
+        }
+        for (unsigned y = 0; y < size.height; ++y)
+            for (unsigned x = 0; x < size.width; ++x)
+            {
+                const auto *source = &pixels[(size_t(y) * size.width + x) * 4];
+                auto *color = &atlas[(size_t(y + 1) * SceneryAtlasSize + slot * SceneryCell + x + 1) * 4];
+                auto *gray = color + size_t(SceneryCell) * SceneryAtlasSize * 4;
+                std::copy_n(source, 4, color);
+                auto luminance =
+                    static_cast<unsigned char>(source[0] * .299f + source[1] * .587f + source[2] * .114f);
+                gray[0] = gray[1] = gray[2] = luminance;
+                gray[3] = source[3];
+            }
+    }
+    sceneryAtlas = upload(SceneryAtlasSize, SceneryAtlasSize, atlas);
+    Profiler::Event("scenery_atlas_upload_bytes", std::to_string(atlas.size()));
+}
 struct Pixel
 {
     unsigned char r, g, b, a;
@@ -117,7 +225,7 @@ std::vector<unsigned char> bakeSprite(int palette)
 {
     std::vector<unsigned char> pixels(AW * AH * 4, 0);
     const Pixel outfits[] = {
-        {57, 107, 117, 255}, {115, 78, 60, 255}, {91, 104, 70, 255}, {110, 89, 123, 255}};
+        {61, 126, 143, 255}, {141, 92, 64, 255}, {102, 126, 78, 255}, {120, 95, 143, 255}};
     for (int action = 0; action < 4; action++)
         for (int face = 0; face < 4; face++)
             for (int frame = 0; frame < 8; frame++)
@@ -160,7 +268,11 @@ std::vector<unsigned char> bakeSprite(int palette)
                     for (int x = 32 - spread; x <= 32 + spread; x++)
                     {
                         Pixel c = cloth;
-                        float shade = .65f + float(x - (32 - spread)) / (spread * 2) * .43f;
+                        const int fold = std::abs(x - 32 + (y - 32) / 7);
+                        float shade = .61f + float(32 + spread - x) / (spread * 2) * .42f;
+                        shade += fold % 7 < 2 ? -.10f : .04f;
+                        if (x == 32 - spread || x == 32 + spread || y == 63)
+                            shade *= .61f;
                         c.r = static_cast<unsigned char>(c.r * shade);
                         c.g = static_cast<unsigned char>(c.g * shade);
                         c.b = static_cast<unsigned char>(c.b * shade);
@@ -168,6 +280,7 @@ std::vector<unsigned char> bakeSprite(int palette)
                     }
                 }
                 box(23, 48 - bob, 19, 4, leather);
+                box(23, 47 - bob, 19, 1, {109, 77, 49, 255});
                 box(31, 48 - bob, 4, 4, {187, 151, 82, 255});
                 oval(21, 33 - bob, 5, 6, cloth);
                 oval(43, 33 - bob, 5, 6, cloth);
@@ -180,10 +293,14 @@ std::vector<unsigned char> bakeSprite(int palette)
                 oval(46, 50 - bob - hand, 3, 4, skin);
                 oval(32, 22 - bob, 11, 13, dark);
                 oval(32, 19 - bob, 10, 11, cloth);
+                oval(29, 15 - bob, 7, 5,
+                     {static_cast<unsigned char>(cloth.r * .9f), static_cast<unsigned char>(cloth.g * .91f),
+                      static_cast<unsigned char>(cloth.b * .94f), 255});
                 if (face != 3)
                 {
                     int shift = face == 1 ? -3 : face == 2 ? 3 : 0;
                     oval(32 + shift, 25 - bob, 7, 8, skin);
+                    box(27 + shift, 27 - bob, 2, 3, {223, 174, 122, 255});
                     box(26 + shift, 18 - bob, 13, 4, leather);
                     box(29 + shift, 25 - bob, 2, 2, dark);
                     if (face == 0)
@@ -199,6 +316,9 @@ std::vector<unsigned char> bakeSprite(int palette)
                 }
                 if (palette == 0)
                 {
+                    box(18, 32 - bob, 8, 3, {137, 155, 155, 255});
+                    box(20, 35 - bob, 5, 2, {83, 109, 117, 255});
+                    box(26, 42 - bob, 3, 12, {192, 161, 110, 255});
                     box(48, 49 - bob - hand, 6, 9, {218, 163, 71, 255});
                     box(50, 51 - bob - hand, 2, 5, {255, 232, 162, 255});
                 }
@@ -244,16 +364,20 @@ void loadPost()
     const char *vs = "#version 120\nvarying vec2 uv;void "
                      "main(){gl_Position=gl_ModelViewProjectionMatrix*gl_Vertex;uv=gl_MultiTexCoord0.xy;}";
     const char *fs = R"GLSL(#version 120
-uniform sampler2D scene;uniform sampler2D bloomImage;uniform int pass;uniform int bloomReady;uniform vec2 pixel;uniform float clock;varying vec2 uv;
-vec3 bright(vec2 p){vec3 s=texture2D(scene,p).rgb;return s*smoothstep(0.48,0.93,max(max(s.r,s.g),s.b));}
+uniform sampler2D scene;uniform sampler2D bloomImage;uniform int pass;uniform int bloomReady;uniform vec2 pixel;varying vec2 uv;
+vec3 bright(vec2 p){vec3 s=texture2D(scene,p).rgb;return s*smoothstep(0.54,0.91,max(max(s.r,s.g),s.b));}
 void main(){vec3 c=texture2D(scene,uv).rgb;
  vec3 bloom=vec3(0);if(pass==1||bloomReady==0)bloom=(bright(uv+vec2(pixel.x*6.0,0.0))+bright(uv-vec2(pixel.x*6.0,0.0))+bright(uv+vec2(0.0,pixel.y*6.0))+bright(uv-vec2(0.0,pixel.y*6.0)))*0.25;
  if(pass==1){gl_FragColor=vec4(bloom,1);return;}
  if(bloomReady==1)bloom=texture2D(bloomImage,uv).rgb;
- c=(c+bloom*0.37)*(1.10-c*0.10)*vec3(0.99,1.025,1.04);
- vec2 d=uv-0.5;c*=1.0-0.33*dot(d,d);
- float grain=fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))+clock*0.13)-0.5;
- gl_FragColor=vec4(clamp(c+grain*0.003,0.0,1.0),1.0);})GLSL";
+ float light=dot(c,vec3(0.299,0.587,0.114));
+ c=mix(vec3(light),c,1.12);
+ float chroma=max(max(c.r,c.g),c.b)-min(min(c.r,c.g),c.b);
+ c+=(1.0-smoothstep(0.05,0.56,light))*smoothstep(0.02,0.1,chroma)*vec3(-0.012,0.004,0.031);
+ c=(c+bloom*0.32)*(1.15-c*0.15);
+ vec2 d=(uv-0.5)*vec2(1.0,0.84);c*=1.0-0.62*dot(d,d);
+ float grain=fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715)))-0.5;
+ gl_FragColor=vec4(clamp(c+grain*0.004,0.0,1.0),1.0);})GLSL";
     GLuint a = shader(0x8B31, vs), b = shader(0x8B30, fs);
     if (!a || !b)
     {
@@ -288,10 +412,13 @@ void main(){gl_Position=gl_ModelViewProjectionMatrix*gl_Vertex;uv=gl_MultiTexCoo
 uniform sampler2D image;uniform float clock;uniform int mode;varying vec2 uv;varying vec2 world;varying vec4 tint;
 void main(){
  if(mode==0){
-  vec2 flow=uv+vec2(clock*0.018,clock*0.011);float wave=sin(world.x*0.065+world.y*0.1-clock*1.6)*0.008+sin(world.y*0.09+clock)*0.006;
-  vec3 c=texture2D(image,flow+vec2(wave,-wave)).rgb;
-  float crest=pow(max(0.0,sin(world.x*0.085+world.y*0.045+clock*1.7)),12.0);
-  gl_FragColor=vec4((c+vec3(0.09,0.15,0.14)*crest)*tint.rgb,1.0);
+  vec2 flow=uv+vec2(clock*0.024,-clock*0.017);
+  float warp=sin(world.x*0.049+clock*1.1)*0.11;
+  vec3 c=texture2D(image,flow+vec2(warp,-warp*0.65)).rgb;
+  float surface=sin(world.y*0.13+world.x*0.024+sin(world.x*0.065+clock*0.8)*1.2-clock*1.9);
+  float broken=smoothstep(0.03,0.80,sin(world.x*0.11+world.y*0.033+clock*0.5));
+  float crest=smoothstep(0.89,0.996,surface)*broken;
+  gl_FragColor=vec4((c+vec3(0.17,0.32,0.30)*crest)*tint.rgb,1.0);
  }else{
   float y=1.0-uv.y;float bend=sin(y*10.0-clock*6.0)*0.08*y+sin(clock*9.0+y*17.0)*0.025;
   float x=abs(uv.x-0.5-bend);float radius=(1.0-y)*0.30*(0.8+0.2*sin(clock*7.0+y*11.0));
@@ -328,58 +455,24 @@ void main(){
 } // namespace
 bool Initialize()
 {
+    LoadScenery();
     for (int type = 0; type < 4; type++)
     {
-        auto data = AssetCache::LoadOrCreate("material-" + std::to_string(type), 128 * 128 * 4, [type]() {
-            std::vector<unsigned char> data(128 * 128 * 4);
-            for (int y = 0; y < 128; y++)
-                for (int x = 0; x < 128; x++)
-                {
-                    float n = noise(x, y), r, g, b;
-                    if (type == 0)
+        auto data = AssetCache::LoadOrCreate(
+            "storybook-material-v2-" + std::to_string(type), 128 * 128 * 4, [type]() {
+                std::vector<unsigned char> data(128 * 128 * 4);
+                for (int y = 0; y < 128; y++)
+                    for (int x = 0; x < 128; x++)
                     {
-                        float blade = (x % 9 == 0 && y % 17 < 8) ? .08f : 0;
-                        r = .15f + n * .025f + blade * .3f;
-                        g = .22f + n * .035f + blade;
-                        b = .15f + n * .02f;
+                        const auto rgb = MaterialColor(type, x, y);
+                        size_t i = size_t(y * 128 + x) * 4;
+                        for (size_t channel = 0; channel < rgb.size(); ++channel)
+                            data[i + channel] =
+                                static_cast<unsigned char>(std::clamp(rgb[channel], 0.f, 1.f) * 255);
+                        data[i + 3] = 255;
                     }
-                    else if (type == 1)
-                    {
-                        int row = y / 32, xx = (x + (row % 2) * 32) % 64, yy = y % 32;
-                        bool gap = xx < 2 || yy < 2 || xx > 61;
-                        float slab = noise((x + (row % 2) * 32) / 64, row);
-                        float edge = (xx == 2 || yy == 2) ? .10f : 0;
-                        r = gap ? .105f : .29f + slab * .10f + n * .045f + edge;
-                        g = gap ? .13f : .30f + slab * .09f + n * .04f + edge;
-                        b = gap ? .095f : .25f + slab * .06f + n * .04f + edge;
-                    }
-                    else if (type == 2)
-                    {
-                        r = .26f + n * .11f;
-                        g = .24f + n * .09f;
-                        b = .17f + n * .07f;
-                        if (n > .94f)
-                        {
-                            r += .07f;
-                            g += .065f;
-                            b += .05f;
-                        }
-                    }
-                    else
-                    {
-                        float ripple = sinf(x * .17f + sinf(y * .12f) * 2) * .015f;
-                        r = .065f + n * .015f;
-                        g = .20f + n * .025f + ripple;
-                        b = .24f + n * .035f + ripple;
-                    }
-                    size_t i = size_t(y * 128 + x) * 4;
-                    data[i] = static_cast<unsigned char>(r * 255);
-                    data[i + 1] = static_cast<unsigned char>(g * 255);
-                    data[i + 2] = static_cast<unsigned char>(b * 255);
-                    data[i + 3] = 255;
-                }
-            return data;
-        });
+                return data;
+            });
         materials[type] = upload(128, 128, data, true);
         for (size_t i = 0; i < data.size(); i += 4)
         {
@@ -392,7 +485,7 @@ bool Initialize()
     std::vector<unsigned char> spriteAtlas(size_t(AW * 2) * AH * 2 * 4);
     for (int i = 0; i < 4; ++i)
     {
-        auto pixels = AssetCache::LoadOrCreate("sprite-" + std::to_string(i), AW * AH * 4,
+        auto pixels = AssetCache::LoadOrCreate("storybook-sprite-" + std::to_string(i), AW * AH * 4,
                                                [i]() { return bakeSprite(i); });
         for (int y = 0; y < AH; ++y)
             std::copy_n(pixels.data() + size_t(y) * AW * 4, AW * 4,
@@ -422,11 +515,16 @@ bool Initialize()
             }
         return pixels;
     });
-    // Share one texture between solid-colored triangles and soft shadows, preserving draw order.
-    std::vector<unsigned char> shadowAtlas(256 * 128 * 4, 255);
+    // One texture for soft shadows, tinted light pools and solid geometry.
+    std::vector<unsigned char> shadowAtlas(384 * 128 * 4, 255);
     for (int y = 0; y < 128; ++y)
-        std::copy_n(pixels.data() + y * 128 * 4, 128 * 4, shadowAtlas.data() + y * 256 * 4);
-    shadow = upload(256, 128, shadowAtlas);
+    {
+        auto *row = shadowAtlas.data() + y * 384 * 4;
+        std::copy_n(pixels.data() + y * 128 * 4, 128 * 4, row);
+        for (int x = 0; x < 128; ++x)
+            row[(x + 128) * 4 + 3] = pixels[(y * 128 + x) * 4 + 3];
+    }
+    shadow = upload(384, 128, shadowAtlas);
     RenderBatch::SetSolidTexture(shadow, .75f, .5f);
     glGenTextures(1, &scene);
     loadPost();
@@ -451,6 +549,56 @@ bool Initialize()
 unsigned MaterialTexture(int material)
 {
     return materials[material];
+}
+unsigned SolidTexture()
+{
+    return shadow;
+}
+bool DrawScenery(Scenery kind, float x, float y, float scale, float opacity, bool frozen)
+{
+    auto slot = static_cast<unsigned>(kind);
+    const auto &size = scenerySizes[slot];
+    if (!size.width)
+        return false;
+    const float h = (kind == Scenery::Oldwood ? 126.f : 156.f) * scale;
+    const float w = h * size.width / size.height;
+    const float foot = (kind == Scenery::Oldwood ? 8.f : 21.f) * scale;
+    const float u = (slot * SceneryCell + 1.5f) / SceneryAtlasSize;
+    const float v = ((frozen ? SceneryCell : 0) + 1.5f) / SceneryAtlasSize;
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, sceneryAtlas);
+    RenderBatch::Color4f(1, 1, 1, opacity);
+    quad(x - w * .5f, y + foot - h, w, h, u, v, (size.width - 1.f) / SceneryAtlasSize,
+         (size.height - 1.f) / SceneryAtlasSize);
+    RenderBatch::Disable(GL_TEXTURE_2D);
+    return true;
+}
+bool RunTests(std::string &report)
+{
+    for (int resource : SceneryResourceIds)
+    {
+        std::vector<unsigned char> pixels;
+        unsigned width = 0, height = 0;
+        if (!EmbeddedImage::Decode(resource, pixels, width, height, ScenerySide) ||
+            std::max(width, height) != ScenerySide || pixels.size() != size_t(width) * height * 4)
+        {
+            report += "FAIL: embedded scenery PNG decode or atlas dimensions.\n";
+            return false;
+        }
+        size_t transparent = 0, solid = 0;
+        for (size_t i = 3; i < pixels.size(); i += 4)
+        {
+            transparent += pixels[i] < 16;
+            solid += pixels[i] > 240;
+        }
+        if (transparent < pixels.size() / 40 || solid < pixels.size() / 16)
+        {
+            report += "FAIL: embedded scenery PNG alpha.\n";
+            return false;
+        }
+    }
+    report += "PASS: embedded tree and cottage decode with alpha into the scenery atlas.\n";
+    return true;
 }
 void MaterialQuad(int material, const float *xy, float variation, float time)
 {
@@ -483,7 +631,15 @@ void SoftShadow(float x, float y, float radius, float stretch, float opacity)
     RenderBatch::Enable(GL_TEXTURE_2D);
     RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
     RenderBatch::Color4f(1, 1, 1, opacity);
-    quad(x - radius, y - radius * stretch, radius * 2, radius * stretch * 2, 0, 0, .5f, 1);
+    quad(x - radius, y - radius * stretch, radius * 2, radius * stretch * 2, .5f / 384, 0, 127.f / 384, 1);
+    RenderBatch::Disable(GL_TEXTURE_2D);
+}
+void LightPool(float x, float y, float radius, float stretch, float r, float g, float b, float opacity)
+{
+    RenderBatch::Enable(GL_TEXTURE_2D);
+    RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
+    RenderBatch::Color4f(r, g, b, opacity);
+    quad(x - radius, y - radius * stretch, radius * 2, radius * stretch * 2, 128.5f / 384, 0, 127.f / 384, 1);
     RenderBatch::Disable(GL_TEXTURE_2D);
 }
 bool PostAvailable()
@@ -539,7 +695,7 @@ void BeginScene(int width, int height, bool enabled)
     else if (bindFramebuffer)
         bindFramebuffer(0x8D40, 0);
 }
-void PostProcess(int width, int height, float time, bool enabled)
+void PostProcess(int width, int height, bool enabled)
 {
     Profiler::Scope scope("postprocess_cpu");
     Profiler::GpuScope gpu("postprocess");
@@ -553,7 +709,6 @@ void PostProcess(int width, int height, float time, bool enabled)
     uniform1i(Uniform(program, "scene"), 0);
     uniform1i(Uniform(program, "bloomImage"), 1);
     uniform2f(Uniform(program, "pixel"), 1.f / width, 1.f / height);
-    uniform1f(Uniform(program, "clock"), time);
     uniform1i(Uniform(program, "bloomReady"), sceneTarget ? 1 : 0);
     if (sceneTarget)
     {
@@ -614,8 +769,9 @@ void BeginWater(float time)
 }
 void EndEffect()
 {
-    if (effectsProgram)
-        RenderBatch::Flush();
+    if (!effectsProgram)
+        return;
+    RenderBatch::Flush();
     useProgram(0);
 }
 bool EffectsAvailable()
@@ -650,6 +806,7 @@ void Shutdown()
     glDeleteTextures(8, materials);
     glDeleteTextures(4, sprites);
     glDeleteTextures(1, &shadow);
+    glDeleteTextures(1, &sceneryAtlas);
     glDeleteTextures(1, &scene);
     if (program)
         deleteProgram(program);

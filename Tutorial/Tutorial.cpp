@@ -371,12 +371,9 @@ void wrapped(float x, float y, const std::wstring &s, int columns = 58)
 }
 void glow(V p, float r, C c)
 {
-    for (int i = 8; i >= 1; i--)
-    {
-        C a = c;
-        a.a = .018f * (9 - i);
-        ellipse(p, r * i / 8, r * i / 8 * .65f, a);
-    }
+    if (desaturatedGeometry)
+        c.r = c.g = c.b = c.r * .299f + c.g * .587f + c.b * .114f;
+    Visuals::LightPool(p.x, p.y, r, .65f, c.r, c.g, c.b, c.a);
 }
 void tile(int x, int y, C c)
 {
@@ -390,9 +387,10 @@ float hash(int x, int y)
     n = (n ^ (n >> 13)) * 1274126177u;
     return (n & 65535) / 65535.f;
 }
+constexpr TerrainBatch::Lake VillageLake{16, -7, 5.5f, 8};
 bool lake(V p)
 {
-    float x = (p.x - 16) / 5.5f, y = (p.y + 7) / 8;
+    float x = (p.x - VillageLake.x) / VillageLake.radiusX, y = (p.y - VillageLake.y) / VillageLake.radiusY;
     return x * x + y * y < 1;
 }
 struct CollisionShape
@@ -614,7 +612,6 @@ void initWorld()
     villageWorld.Initialize(tutorialScene, std::vector<Scene::ActorId>(npcActors, npcActors + NPC_COUNT),
                             tutorialPlayer, [](Scene::Position p) { return blocked({p.x, p.y}); });
 }
-GLuint treeList = 0;
 void treeGeometry(V p, float s)
 {
 
@@ -635,24 +632,17 @@ void treeGeometry(V p, float s)
         line({p.x, y - 43 * s}, {p.x - w * .85f, y - 2 * s}, {.16f, .27f, .22f, .7f});
     }
 }
-void tree(V p, float s)
-{
-    if (!treeList)
-    {
-        treeList = glGenLists(1);
-        RenderBatch::NewList(treeList, GL_COMPILE);
-        treeGeometry({0, 0}, 1);
-        RenderBatch::EndList();
-    }
-    RenderBatch::PushMatrix();
-    RenderBatch::Translatef(p.x, p.y, 0);
-    RenderBatch::Scalef(s, s, 1);
-    RenderBatch::CallList(treeList);
-    RenderBatch::PopMatrix();
-}
 void house(V p, int id)
 {
-
+    if (Visuals::DrawScenery(Visuals::Scenery::Cottage, p.x, p.y, 1, 1, desaturatedGeometry))
+    {
+        if (!desaturatedGeometry)
+        {
+            glow(p + V{-24, -67}, 37, {1, .58f, .18f, .42f});
+            glow(p + V{37, -34}, 32, {1, .58f, .18f, .42f});
+        }
+        return;
+    }
     poly({{p.x - 65, p.y - 26}, {p.x, p.y + 7}, {p.x, p.y - 66}, {p.x - 65, p.y - 96}}, {.25f, .27f, .25f});
     poly({{p.x, p.y + 7}, {p.x + 65, p.y - 26}, {p.x + 65, p.y - 96}, {p.x, p.y - 66}}, {.18f, .22f, .21f});
     poly({{p.x - 77, p.y - 92}, {p.x - 8, p.y - 142}, {p.x + 76, p.y - 92}, {p.x, p.y - 56}},
@@ -932,24 +922,19 @@ void drawWorld()
                 {
                     Scene::Position p{x + .5f, y + .5f};
                     int region = WorldLayout::VillageAt(p);
-                    bool water = lake({p.x, p.y});
                     bool village = false, localRoad = false;
                     if (region >= 0)
                     {
                         auto base = WorldLayout::Settlements()[region].center;
-                        village = std::abs(p.x - base.x) < 8 && std::abs(p.y - base.y) < 8;
+                        float dx = std::abs(p.x - base.x), dy = std::abs(p.y - base.y);
+                        village = dx < 8 && dy < 8 && dx + dy < 12.5f + hash(x, y);
                         localRoad = std::abs(p.x - base.x) < 1.8f || std::abs(p.y - base.y - 18) < 1.8f;
                     }
                     bool road =
                         WorldLayout::IsRoad(p) || localRoad || (x >= 0 && x < 14 && std::abs(y + 5) < 2);
-                    tiles.push_back({x, y,
-                                     water     ? 3
-                                     : village ? 1
-                                     : road    ? 2
-                                               : 0,
-                                     .92f + hash(x / 3, y / 3) * .10f});
+                    tiles.push_back({x, y, village ? 1 : road ? 2 : 0, .94f + hash(x / 3, y / 3) * .07f});
                 }
-            tutorialTerrain.Build(tiles);
+            tutorialTerrain.Build(tiles, &VillageLake);
         }
         auto &terrain = *tutorialScene.Find(terrainActor);
         auto terrainPosition = terrain.GetWorldPosition();
@@ -981,53 +966,6 @@ void drawWorld()
             frozenTerrain.Draw(width, height, 0);
         }
         RenderBatch::PopMatrix();
-        for (int i = 0; i < 90; i++)
-        {
-            float a = i * 6.2831853f / 90;
-            V q{16 + cosf(a) * 5.65f, -7 + sinf(a) * 8.15f};
-            V p = project(q);
-            ellipse(p, 6 + hash(i, 4) * 5, 3, {.37f, .40f, .29f});
-            if (i % 3 == 0)
-            {
-                for (int j = 0; j < 3; j++)
-                    line(p + V{float(j * 3), 0},
-                         p + V{float(j * 3) + sinf(worldTime + i) * 2, -14 - float(j % 2) * 8},
-                         {.43f, .43f, .22f}, 2);
-            }
-        }
-        for (int i = 0; i < 5; i++)
-        {
-            V p = project({15.f + float(i % 2) * 2, -10.f + float(i) * 2});
-            float t = fmodf(worldTime * .15f + i * .2f, 1);
-            color({.46f, .72f, .73f, (1 - t) * .14f});
-            RenderBatch::Begin(GL_LINE_LOOP);
-            for (int j = 0; j < 48; j++)
-            {
-                float a = j * 6.2831853f / 48;
-                RenderBatch::Vertex2f(p.x + cosf(a) * (10 + t * 50), p.y + sinf(a) * (5 + t * 20));
-            }
-            RenderBatch::End();
-        }
-        for (int i = 0; i < 32; i++)
-        {
-            float x = 12 + hash(i, 2) * 8, y = -13 + hash(i, 3) * 12;
-            if (lake({x, y}))
-            {
-                V p = project({x, y});
-                float w = 9 + sinf(worldTime + i) * 5;
-                line(p + V{-w, 0}, p + V{w, 0}, {.37f, .63f, .62f, .18f});
-            }
-        }
-        // Village cobbles and lantern pools.
-        for (int i = 0; i < 120; i++)
-        {
-            V q{hash(i, 9) * 12 - 6, hash(i, 8) * 12 - 6};
-            if (!blocked(q))
-            {
-                V p = project(q);
-                ellipse(p, 4 + hash(i, 3) * 3, 2, {.47f, .46f, .36f, .13f});
-            }
-        }
         SceneRender::Pop();
         RenderBatch::PopMatrix();
     }
@@ -1035,6 +973,12 @@ void drawWorld()
     auto visibleActors = tutorialScene.RenderQueue(Scene::Layer::World, &view);
     for (auto actor : visibleActors)
     {
+        if (actor->GetKind() == Scene::Kind::Brazier && !villageWorld.IsFrozen(actor->GetWorldPosition()))
+        {
+            V p = project(ActorPosition(actor->GetId()));
+            float pulse = .66f + .10f * sinf(worldTime * 5 + actor->GetWorldPosition().x);
+            Visuals::LightPool(p.x, p.y, 90, .53f, 1, .53f, .15f, pulse);
+        }
         if (actor->GetKind() != Scene::Kind::Tree && actor->GetKind() != Scene::Kind::House)
             continue;
         const auto &o = objects.at(actor->GetDataIndex());
@@ -1042,7 +986,7 @@ void drawWorld()
         if (p.x < -200 || p.x > width + 200 || p.y < -150 || p.y > height + 100)
             continue;
         SceneRender::Push(*tutorialScene.Find(o.actor), p.x, p.y);
-        float r = o.type == 1 ? 70.f : 28.f * o.scale;
+        float r = o.type == 1 ? 80.f : 54.f * o.scale;
         // Ground-projected caster silhouettes with layered penumbra, all before geometry.
         for (int layer = 3; layer >= 0; layer--)
         {
@@ -1056,6 +1000,7 @@ void drawWorld()
         Visuals::SoftShadow(p.x, p.y, r * .6f, .35f, .8f);
         SceneRender::Pop();
     }
+    const V playerScreen = project(PlayerPosition());
     for (auto actor : visibleActors)
     {
         if (actor->GetKind() == Scene::Kind::Companion)
@@ -1124,21 +1069,12 @@ void drawWorld()
         switch (o.type)
         {
         case 0: {
-            float a = length(ActorPosition(o.actor) - PlayerPosition());
-            if (a < 3 &&
-                ActorPosition(o.actor).x + ActorPosition(o.actor).y > PlayerPosition().x + PlayerPosition().y)
-            {
-                RenderBatch::Enable(GL_POLYGON_STIPPLE);
-                GLubyte mask[128];
-                for (int i = 0; i < 128; i++)
-                    mask[i] = (i / 4) % 2 ? 0xAA : 0x55;
-                glPolygonStipple(mask);
-            }
-            if (desaturatedGeometry)
+            const V offset = p - playerScreen;
+            const bool occluding =
+                std::abs(offset.x) < 60 * o.scale && offset.y > 0 && offset.y < 110 * o.scale;
+            if (!Visuals::DrawScenery(Visuals::Scenery::Oldwood, p.x, p.y, o.scale, occluding ? .42f : 1.f,
+                                      desaturatedGeometry))
                 treeGeometry(p, o.scale);
-            else
-                tree(p, o.scale);
-            RenderBatch::Disable(GL_POLYGON_STIPPLE);
             break;
         }
         case 1:
@@ -1148,14 +1084,28 @@ void drawWorld()
             person(p, npcs[o.id].color, false, o.id);
             break;
         case 3:
-            ellipse(p, 22, 11, {.38f, .40f, .34f});
-            ellipse(p + V{0, -8}, 22, 11, {.48f, .47f, .38f});
-            ellipse(p + V{0, -9}, 14, 6, {.045f, .075f, .07f});
+            Visuals::SoftShadow(p.x + 8, p.y + 6, 41, .45f, .9f);
+            ellipse(p, 26, 12, {.22f, .25f, .26f});
+            ellipse(p + V{0, -10}, 26, 13, {.46f, .49f, .43f});
+            ellipse(p + V{0, -10}, 19, 9, {.07f, .17f, .20f});
+            ellipse(p + V{0, -8}, 14, 5, {.15f, .39f, .40f});
+            for (int block = 0; block < 6; ++block)
+            {
+                float angle = (block + .5f) * .523599f;
+                V joint{cosf(angle) * 25, -10 + sinf(angle) * 12};
+                line(p + joint, p + V{joint.x * .78f, joint.y - 3}, {.23f, .28f, .27f});
+            }
             break;
         case 4:
-            poly({{p.x - 15, p.y}, {p.x - 12, p.y - 34}, {p.x + 8, p.y - 40}, {p.x + 15, p.y - 5}},
-                 {.40f, .47f, .43f});
-            line(p + V{-2, -30}, p + V{-2, -10}, {.62f, .68f, .54f}, 2);
+            Visuals::SoftShadow(p.x + 9, p.y + 6, 45, .43f, .82f);
+            poly({p + V{-31, 3}, p + V{2, -12}, p + V{31, 1}, p + V{0, 17}}, {.27f, .33f, .31f});
+            poly({p + V{-26, -2}, p + V{1, -16}, p + V{27, -3}, p + V{0, 11}}, {.47f, .51f, .44f});
+            poly({p + V{-14, -3}, p + V{-12, -38}, p + V{0, -52}, p + V{10, -42}, p + V{6, 4}},
+                 {.37f, .47f, .43f});
+            poly({p + V{10, -42}, p + V{18, -36}, p + V{16, -3}, p + V{6, 4}}, {.17f, .24f, .27f});
+            poly({p + V{-12, -38}, p + V{0, -52}, p + V{10, -42}, p + V{-1, -40}}, {.59f, .63f, .51f});
+            glow(p + V{-2, -27}, 28, {.20f, .76f, .69f, .62f});
+            poly({p + V{-1, -35}, p + V{3, -27}, p + V{-3, -20}, p + V{-6, -27}}, {.52f, .90f, .78f});
             break;
         case 5:
             line(p, p + V{0, -24}, {.3f, .24f, .15f}, 3);
@@ -1299,7 +1249,7 @@ void draw()
     RenderBatch::Frame batchFrame;
     Profiler::Scope renderScope("render_total_cpu");
     glViewport(0, 0, width, height);
-    glClearColor(.035f, .065f, .065f, 1);
+    glClearColor(.024f, .039f, .062f, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     RenderBatch::MatrixMode(GL_PROJECTION);
     RenderBatch::LoadIdentity();
@@ -1317,7 +1267,7 @@ void draw()
         return;
     }
     drawWorld();
-    Visuals::PostProcess(width, height, worldTime, postEnabled);
+    Visuals::PostProcess(width, height, postEnabled);
     if (!ActorVisible(hudActor))
         return;
     Profiler::Scope hudScope("ui_cpu");
@@ -2181,6 +2131,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR command, int)
         okay = Journey::Quest::RunTests(report) && okay;
         okay = WorldLayout::RunTests(report) && okay;
         okay = JournalArt::RunTests(report) && okay;
+        okay = Visuals::RunTests(report) && okay;
         std::ofstream file("first-level-test-report.txt");
         file << report;
         return legacy == 0 && okay ? 0 : 3;
@@ -2560,8 +2511,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR command, int)
             PublishMonitoring();
         Profiler::EndFrame();
     }
-    if (treeList)
-        glDeleteLists(treeList, 1);
     tutorialTerrain.Clear();
     frozenTerrain.Clear();
     Monitor::Shutdown();

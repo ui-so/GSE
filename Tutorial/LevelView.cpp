@@ -350,7 +350,7 @@ void Draw(const FirstLevel::World &world, const Frame &current, TextRenderer tex
     frame = current;
     renderText = text;
     DrawScene(world);
-    Visuals::PostProcess(frame.width, frame.height, frame.time, frame.postEnabled);
+    Visuals::PostProcess(frame.width, frame.height, frame.postEnabled);
     Profiler::Scope hudScope("ui_cpu");
     Profiler::GpuScope hudGpu("ui");
     for (auto actor : world.GetScene().RenderQueue(Scene::Layer::Interface))

@@ -324,6 +324,27 @@
       "inclusive": true
     },
     {
+      "name": "terrain_shore_edges_built",
+      "kind": "counter",
+      "unit": "count"
+    },
+    {
+      "name": "scenery_atlas_load",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "scenery_atlas_upload_bytes",
+      "kind": "event",
+      "unit": "bytes"
+    },
+    {
+      "name": "scenery_asset_load_failed",
+      "kind": "event",
+      "unit": "text"
+    },
+    {
       "name": "terrain_submit_cpu",
       "kind": "cpu_scope",
       "unit": "ms",
