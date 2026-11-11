@@ -30,5 +30,6 @@ class Map
 
   private:
     std::vector<Chunk> chunks_;
+    Lake lake_{};
 };
 } // namespace TerrainBatch

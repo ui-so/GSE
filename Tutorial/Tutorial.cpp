@@ -638,8 +638,8 @@ void house(V p, int id)
     {
         if (!desaturatedGeometry)
         {
-            glow(p + V{-24, -67}, 37, {1, .58f, .18f, .42f});
-            glow(p + V{37, -34}, 32, {1, .58f, .18f, .42f});
+            glow(p + V{-3, -38}, 25, {.90f, .61f, .29f, .28f});
+            glow(p + V{42, -35}, 20, {.90f, .61f, .29f, .26f});
         }
         return;
     }
@@ -932,7 +932,7 @@ void drawWorld()
                     }
                     bool road =
                         WorldLayout::IsRoad(p) || localRoad || (x >= 0 && x < 14 && std::abs(y + 5) < 2);
-                    tiles.push_back({x, y, village ? 1 : road ? 2 : 0, .94f + hash(x / 3, y / 3) * .07f});
+                    tiles.push_back({x, y, village ? 1 : road ? 2 : 0, .97f + hash(x / 6, y / 6) * .025f});
                 }
             tutorialTerrain.Build(tiles, &VillageLake);
         }
@@ -977,7 +977,7 @@ void drawWorld()
         {
             V p = project(ActorPosition(actor->GetId()));
             float pulse = .66f + .10f * sinf(worldTime * 5 + actor->GetWorldPosition().x);
-            Visuals::LightPool(p.x, p.y, 90, .53f, 1, .53f, .15f, pulse);
+            Visuals::LightPool(p.x, p.y, 67, .53f, .92f, .60f, .25f, pulse * .65f);
         }
         if (actor->GetKind() != Scene::Kind::Tree && actor->GetKind() != Scene::Kind::House)
             continue;
@@ -1085,8 +1085,8 @@ void drawWorld()
             break;
         case 3:
             Visuals::SoftShadow(p.x + 8, p.y + 6, 41, .45f, .9f);
-            ellipse(p, 26, 12, {.22f, .25f, .26f});
-            ellipse(p + V{0, -10}, 26, 13, {.46f, .49f, .43f});
+            ellipse(p, 26, 12, {.14f, .23f, .31f});
+            ellipse(p + V{0, -10}, 26, 13, {.35f, .455f, .46f});
             ellipse(p + V{0, -10}, 19, 9, {.07f, .17f, .20f});
             ellipse(p + V{0, -8}, 14, 5, {.15f, .39f, .40f});
             for (int block = 0; block < 6; ++block)
@@ -1098,12 +1098,12 @@ void drawWorld()
             break;
         case 4:
             Visuals::SoftShadow(p.x + 9, p.y + 6, 45, .43f, .82f);
-            poly({p + V{-31, 3}, p + V{2, -12}, p + V{31, 1}, p + V{0, 17}}, {.27f, .33f, .31f});
-            poly({p + V{-26, -2}, p + V{1, -16}, p + V{27, -3}, p + V{0, 11}}, {.47f, .51f, .44f});
+            poly({p + V{-31, 3}, p + V{2, -12}, p + V{31, 1}, p + V{0, 17}}, {.14f, .23f, .31f});
+            poly({p + V{-26, -2}, p + V{1, -16}, p + V{27, -3}, p + V{0, 11}}, {.35f, .455f, .46f});
             poly({p + V{-14, -3}, p + V{-12, -38}, p + V{0, -52}, p + V{10, -42}, p + V{6, 4}},
-                 {.37f, .47f, .43f});
-            poly({p + V{10, -42}, p + V{18, -36}, p + V{16, -3}, p + V{6, 4}}, {.17f, .24f, .27f});
-            poly({p + V{-12, -38}, p + V{0, -52}, p + V{10, -42}, p + V{-1, -40}}, {.59f, .63f, .51f});
+                 {.285f, .39f, .43f});
+            poly({p + V{10, -42}, p + V{18, -36}, p + V{16, -3}, p + V{6, 4}}, {.14f, .23f, .31f});
+            poly({p + V{-12, -38}, p + V{0, -52}, p + V{10, -42}, p + V{-1, -40}}, {.40f, .51f, .50f});
             glow(p + V{-2, -27}, 28, {.20f, .76f, .69f, .62f});
             poly({p + V{-1, -35}, p + V{3, -27}, p + V{-3, -20}, p + V{-6, -27}}, {.52f, .90f, .78f});
             break;
@@ -1138,12 +1138,12 @@ void drawWorld()
         {
             V q{hash(i, 19) * 34 - 13, hash(i, 21) * 30 - 18};
             V p = project(q, 15 + sinf(worldTime + i) * 8);
-            ellipse(p, 1.5f, 1.5f, {.75f, .8f, .5f, .3f + .25f * sinf(worldTime + i)});
+            ellipse(p, 1.5f, 1.5f, {.34f, .76f, .70f, .20f + .18f * sinf(worldTime + i)});
         }
         // Thin drifting mist preserves scene readability.
         for (int i = 0; i < 5; i++)
             ellipse({fmodf(worldTime * 8 + i * 330, width + 500.f) - 250, height * .55f + i * 65.f}, 280, 23,
-                    {.49f, .64f, .59f, .022f});
+                    {.28f, .46f, .54f, .014f});
         SceneRender::Pop();
         RenderBatch::PopMatrix();
     }

@@ -13,7 +13,7 @@ namespace
 {
 constexpr int WaterMaterial = 3;
 constexpr int ShoreMaterial = 8;
-constexpr int LakeSegments = 96;
+constexpr int LakeSegments = 64;
 constexpr float Turn = 6.2831853f;
 constexpr float WaterUvScale = .26f;
 constexpr int TileCornerX[] = {0, 1, 1, 0};
@@ -83,13 +83,20 @@ void AddLake(std::vector<RenderBatch::Vertex> &surface, std::vector<RenderBatch:
     };
     auto shoreline = [&lake](int step, float radius) {
         float angle = Turn * step / LakeSegments;
-        radius += std::sin(angle * 5) * .014f + std::cos(angle * 9) * .011f + std::sin(angle * 19) * .008f;
+        // Carve shallow coves inside the collision boundary, leaving visible rock shelves.
+        radius -=
+            .095f - std::sin(angle * 3) * .045f - std::cos(angle * 5) * .030f - std::sin(angle * 11) * .015f;
         return Point{lake.x + std::cos(angle) * lake.radiusX * radius,
                      lake.y + std::sin(angle) * lake.radiusY * radius};
     };
     auto edge = [&shoreline](int step, float radius) {
         const auto p = shoreline(step, radius);
         return Project(p[0], p[1]);
+    };
+    auto bank = [&lake](int step) {
+        float angle = Turn * step / LakeSegments;
+        return Project(lake.x + std::cos(angle) * lake.radiusX * 1.012f,
+                       lake.y + std::sin(angle) * lake.radiusY * 1.012f);
     };
     for (int i = 0; i < LakeSegments; ++i)
     {
@@ -101,36 +108,45 @@ void AddLake(std::vector<RenderBatch::Vertex> &surface, std::vector<RenderBatch:
         }
         unsigned bits = unsigned(i) * 0x9e3779b9u;
         float facet = float((bits >> 25) & 15) / 15;
-        Point a = edge(i, 1.024f + facet * .014f), b = edge(i + 1, 1.024f + facet * .014f);
-        Point c = edge(i + 1, .977f), d = edge(i, .977f);
-        Point e = edge(i, .955f), f = edge(i + 1, .955f);
-        float light = .65f + facet * .51f + std::sin(i * Turn / LakeSegments) * .14f;
-        const float moss = facet > .65f ? .065f : 0;
-        AddQuad(shore, {a, b, c, d}, {.32f * light + moss, .38f * light + moss, .36f * light, 1});
-        AddQuad(shore, {d, c, f, e}, {.14f * light, .22f * light, .26f * light, 1});
-        if (facet > .54f)
+        Point a = bank(i), b = bank(i + 1);
+        Point c = edge(i + 1, .966f), d = edge(i, .966f);
+        const float cliff = 5 + facet * 7;
+        Point footA{d[0], d[1] + cliff}, footB{c[0], c[1] + cliff};
+        const float light = .76f + facet * .30f;
+        // Slate wall and dark contact edge, with a mossy cap shared with the paving.
+        AddQuad(shore, {a, b, footB, footA}, {.12f * light, .20f * light, .29f * light, 1});
+        AddQuad(shore, {a, b, c, d}, {.30f * light, .405f * light, .43f * light, 1});
+        if (facet > .50f)
         {
-            Point lipA = edge(i, .990f), lipB = edge(i + 1, .990f);
-            AddQuad(shore, {lipA, lipB, c, d}, {.44f * light, .49f * light, .41f * light, 1});
+            Point lipA{a[0] + (d[0] - a[0]) * .30f, a[1] + (d[1] - a[1]) * .30f};
+            Point lipB{b[0] + (c[0] - b[0]) * .30f, b[1] + (c[1] - b[1]) * .30f};
+            AddQuad(shore, {a, b, lipB, lipA}, {.28f, .43f, .39f, 1});
         }
-        if (facet > .23f)
+        Point joint{a[0] + (b[0] - a[0]) * .08f, a[1] + (b[1] - a[1]) * .08f};
+        AddQuad(shore, {a, joint, {footA[0] + 1.5f, footA[1]}, footA}, {.075f, .125f, .20f, 1});
+        if (i % 3 != 0)
         {
-            Point g = edge(i, .941f), h = edge(i + 1, .941f);
-            Point j = edge(i + 1, .932f), k = edge(i, .932f);
-            AddQuad(shore, {g, h, j, k}, {.43f, .83f, .76f, .24f + facet * .30f});
-        }
-        if (i % 7 == 0)
-        {
-            const auto p = edge(i, 1.032f);
+            Point foam = edge(i, .925f);
+            const float length = 5 + facet * 9;
             AddQuad(shore,
-                    {{p[0] - 8, p[1]}, {p[0] - 3, p[1] - 4}, {p[0] + 7, p[1] - 3}, {p[0] + 4, p[1] + 3}},
-                    {.29f, .34f, .30f, 1});
+                    {{foam[0] - length, foam[1] + 6},
+                     {foam[0] + length, foam[1] + 6},
+                     {foam[0] + length - 3, foam[1] + 7.5f},
+                     {foam[0] - length + 2, foam[1] + 7.5f}},
+                    {.43f, .84f, .72f, .30f});
+        }
+        if (i % 8 == 0)
+        {
+            const auto p = bank(i);
+            AddQuad(shore,
+                    {{p[0] - 10, p[1]}, {p[0] - 5, p[1] - 5}, {p[0] + 8, p[1] - 4}, {p[0] + 6, p[1] + 3}},
+                    {.26f, .38f, .40f, 1});
             for (int blade = 0; blade < 3; ++blade)
             {
                 const float x = p[0] + blade * 4 - 5, y = p[1] + 1;
-                const float tip = x - 5 + blade * 3, height = 10 + facet * 11 - blade * 2;
+                const float tip = x - 4 + blade * 2, height = 9 + facet * 7 - blade * 2;
                 AddQuad(shore, {{x, y}, {x + 2, y}, {tip + 1, y - height}, {tip, y - height}},
-                        {.30f + facet * .19f, .42f + facet * .15f, .19f, 1});
+                        {.25f, .43f, .39f, 1});
             }
         }
     }
@@ -142,6 +158,7 @@ void Map::Clear()
     for (auto &chunk : chunks_)
         RenderBatch::DestroyGeometry(chunk.mesh);
     chunks_.clear();
+    lake_ = {};
 }
 void Map::Build(const std::vector<Tile> &tiles, const Lake *lake)
 {
@@ -158,7 +175,7 @@ void Map::Build(const std::vector<Tile> &tiles, const Lake *lake)
         int chunkX = int(std::floor(tile.x / 16.f)), chunkY = int(std::floor(tile.y / 16.f));
         auto &vertices = grouped[{chunkX, chunkY, tile.material}];
         RenderBatch::Vertex quad[4];
-        const float textureScale = tile.material % 4 == 1 ? .55f : tile.material % 4 == 0 ? .35f : .26f;
+        const float textureScale = tile.material % 4 == 1 ? .25f : tile.material % 4 == 0 ? .22f : .25f;
         for (int i = 0; i < 4; ++i)
         {
             float x = float(tile.x + TileCornerX[i]), y = float(tile.y + TileCornerY[i]);
@@ -178,6 +195,7 @@ void Map::Build(const std::vector<Tile> &tiles, const Lake *lake)
     }
     if (lake)
     {
+        lake_ = *lake;
         int chunkX = int(std::floor(lake->x / 16.f)), chunkY = int(std::floor(lake->y / 16.f));
         AddLake(grouped[{chunkX, chunkY, WaterMaterial}], grouped[{chunkX, chunkY, ShoreMaterial}], *lake);
         shoreEdges += LakeSegments;
@@ -207,7 +225,7 @@ void Map::Draw(int width, int height, float time) const
     for (int pass = 0; pass < 3; ++pass)
     {
         if (pass == 1)
-            Visuals::BeginWater(time);
+            Visuals::BeginWater(time, lake_.x, lake_.y, lake_.radiusX, lake_.radiusY);
         for (auto &chunk : chunks_)
         {
             int chunkPass = chunk.material == ShoreMaterial ? 2 : chunk.material == WaterMaterial ? 1 : 0;

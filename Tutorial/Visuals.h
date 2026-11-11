@@ -14,7 +14,7 @@ unsigned SolidTexture();
 unsigned MaterialTexture(int material);
 bool Initialize();
 void Shutdown();
-void BeginWater(float time);
+void BeginWater(float time, float x = 0, float y = 0, float radiusX = 0, float radiusY = 0);
 void EndEffect();
 void Flame(float x, float y, float scale, float time, bool frozen = false);
 bool EffectsAvailable();

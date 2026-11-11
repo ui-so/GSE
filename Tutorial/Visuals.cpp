@@ -106,58 +106,59 @@ float TextureField(float x, float y, int period)
 }
 std::array<float, 3> MaterialColor(int type, int x, int y)
 {
-    const float grain = noise(x, y) - .5f;
+    // Broad painted clusters share the slate and moss values used by the scenery.
+    x = (x / 2) * 2;
+    y = (y / 2) * 2;
     const float field = TextureField(x / 32.f, y / 32.f, 4);
     const float fleck = TextureField(x / 8.f, y / 8.f, 16);
     if (type == 0)
     {
-        const float moss = .50f * field + .50f * std::floor(fleck * 6) / 6;
-        const float blade = fleck > .53f && (x + y / 3) % 13 < 2 && y % 13 < 7 ? .10f : 0;
-        const bool petal = noise(x / 16, y / 16) > .89f && (x % 16 == 5 || x % 16 == 9) && y % 16 == 8;
-        if (petal)
-            return {.56f, .46f, .23f};
-        return {.125f + moss * .19f + blade * .75f + grain * .036f,
-                .23f + moss * .23f + blade + grain * .040f, .17f + moss * .09f + blade * .22f};
+        if (field < .31f)
+            return {.135f, .225f, .25f};
+        if (field > .64f)
+            return {.18f, .285f, .285f};
+        if (field > .54f && x % 32 < 3 && y % 27 < 7)
+            return {.21f, .32f, .30f};
+        return {.155f, .25f, .265f};
     }
     if (type == 3)
-    {
-        const float depth = .64f * field + .36f * fleck;
-        return {.026f + depth * .092f, .24f + depth * .34f, .31f + depth * .29f};
-    }
-    const float px = x / 32.f, py = y * (6.f / 128);
+        return {.045f, .24f, .30f};
+    const float px = x / 32.f, py = y / 32.f;
     const int cx = int(px), cy = int(py);
-    float best = 20, next = 20, rock = 0, facing = 0;
+    float best = 20, next = 20, stone = 0, facing = 0;
     for (int j = cy - 1; j <= cy + 1; ++j)
         for (int i = cx - 1; i <= cx + 1; ++i)
         {
-            int sx = (i + 4) % 4, sy = (j + 6) % 6;
-            float dx = px - (i + .22f + noise(sx + 6, sy) * .56f);
-            float dy = py - (j + .22f + noise(sx, sy + 5) * .56f);
+            int sx = (i + 4) % 4, sy = (j + 4) % 4;
+            float dx = px - (i + .20f + noise(sx + 6, sy) * .60f);
+            float dy = py - (j + .20f + noise(sx, sy + 5) * .60f);
             float distance = dx * dx + dy * dy;
             if (distance < best)
             {
                 next = best;
                 best = distance;
-                rock = noise(sx + 19, sy + 9);
+                stone = noise(sx + 19, sy + 9);
                 facing = dx + dy;
             }
             else
                 next = std::min(next, distance);
         }
     const float edge = next - best;
-    if (type == 2)
+    if (type == 2 && (stone < .57f || edge < .08f))
     {
-        const float cobble = edge > .28f && rock > .60f ? .10f : 0;
-        return {.31f + field * .17f + fleck * .06f + grain * .055f + cobble,
-                .24f + field * .14f + fleck * .05f + grain * .048f + cobble * .9f,
-                .15f + field * .095f + grain * .035f + cobble * .7f};
+        if (field > .65f)
+            return {.25f, .34f, .35f};
+        return field > .40f ? std::array<float, 3>{.23f, .31f, .34f} : std::array<float, 3>{.20f, .28f, .32f};
     }
-    if (edge < .065f)
-        return {.17f + fleck * .06f, .18f + fleck * .07f, .19f + fleck * .045f};
-    const float bevel = edge < .15f ? (facing < 0 ? .095f : -.09f) : 0;
-    const float moss = fleck > .67f && rock < .46f ? .10f : 0;
-    const float shade = rock * .16f + field * .06f + grain * .035f + bevel - facing * .035f;
-    return {.37f + shade - moss * .4f, .365f + shade + moss * .4f, .33f + shade - moss * .7f};
+    if (edge < .042f)
+        return {.085f, .14f, .205f};
+    if (edge < .115f)
+        return facing < 0 ? std::array<float, 3>{.40f, .51f, .50f} : std::array<float, 3>{.15f, .235f, .30f};
+    if (fleck > .64f && stone < .45f)
+        return {.285f, .415f, .38f};
+    if (stone < .35f)
+        return {.235f, .33f, .38f};
+    return stone > .72f ? std::array<float, 3>{.35f, .455f, .46f} : std::array<float, 3>{.285f, .39f, .43f};
 }
 GLuint upload(int w, int h, const std::vector<unsigned char> &pixels, bool repeat = false)
 {
@@ -409,16 +410,29 @@ void loadEffects()
 varying vec2 uv;varying vec2 world;varying vec4 tint;
 void main(){gl_Position=gl_ModelViewProjectionMatrix*gl_Vertex;uv=gl_MultiTexCoord0.xy;world=gl_Vertex.xy;tint=gl_Color;})GLSL";
     const char *fragment = R"GLSL(#version 120
-uniform sampler2D image;uniform float clock;uniform int mode;varying vec2 uv;varying vec2 world;varying vec4 tint;
+uniform sampler2D image;uniform float clock;uniform int mode;uniform vec2 lakeCenter;uniform vec2 lakeRadii;varying vec2 uv;varying vec2 world;varying vec4 tint;
 void main(){
  if(mode==0){
-  vec2 flow=uv+vec2(clock*0.024,-clock*0.017);
-  float warp=sin(world.x*0.049+clock*1.1)*0.11;
-  vec3 c=texture2D(image,flow+vec2(warp,-warp*0.65)).rgb;
-  float surface=sin(world.y*0.13+world.x*0.024+sin(world.x*0.065+clock*0.8)*1.2-clock*1.9);
-  float broken=smoothstep(0.03,0.80,sin(world.x*0.11+world.y*0.033+clock*0.5));
-  float crest=smoothstep(0.89,0.996,surface)*broken;
-  gl_FragColor=vec4((c+vec3(0.17,0.32,0.30)*crest)*tint.rgb,1.0);
+  vec2 p=floor(world*0.5)*2.0;
+  vec2 flow=uv+vec2(clock*0.004,-clock*0.003);
+  vec3 base=texture2D(image,flow).rgb;
+  vec2 position=vec2(p.x/62.0+p.y/31.0,-p.x/62.0+p.y/31.0);
+  float rim=0.0;
+  if(lakeRadii.x>0.0){
+   float radius=length((position-lakeCenter)/lakeRadii);
+   rim=smoothstep(0.48,0.98,radius);
+  }
+  vec3 c=mix(base,vec3(0.11,0.52,0.46),rim*0.78);
+  vec2 cell=floor(p/vec2(27.0,12.0));
+  float random=fract(sin(dot(cell,vec2(127.1,311.7)))*43758.5453);
+  float phase=fract(clock*0.15+random);
+  float stripe=step(0.78,fract((p.y+floor(clock*2.0))/12.0));
+  float fragment=step(0.76,random)*step(0.14,fract(p.x/27.0+phase*0.15));
+  float reflection=stripe*fragment*(0.3+rim*0.35);
+  c+=vec3(0.18,0.43,0.36)*reflection;
+  float glint=step(0.985,random)*step(0.91,sin(clock*1.6+random*20.0));
+  c+=vec3(0.34,0.62,0.49)*glint*stripe;
+  gl_FragColor=vec4(c*tint.rgb,1.0);
  }else{
   float y=1.0-uv.y;float bend=sin(y*10.0-clock*6.0)*0.08*y+sin(clock*9.0+y*17.0)*0.025;
   float x=abs(uv.x-0.5-bend);float radius=(1.0-y)*0.30*(0.8+0.2*sin(clock*7.0+y*11.0));
@@ -458,8 +472,8 @@ bool Initialize()
     LoadScenery();
     for (int type = 0; type < 4; type++)
     {
-        auto data = AssetCache::LoadOrCreate(
-            "storybook-material-v2-" + std::to_string(type), 128 * 128 * 4, [type]() {
+        auto data =
+            AssetCache::LoadOrCreate("moonlit-material-v2-" + std::to_string(type), 128 * 128 * 4, [type]() {
                 std::vector<unsigned char> data(128 * 128 * 4);
                 for (int y = 0; y < 128; y++)
                     for (int x = 0; x < 128; x++)
@@ -757,7 +771,7 @@ void SaveAtlas(const char *path)
     o.write((char *)&b, sizeof(b));
     o.write((char *)data.data(), data.size());
 }
-void BeginWater(float time)
+void BeginWater(float time, float x, float y, float radiusX, float radiusY)
 {
     if (!effectsProgram)
         return;
@@ -765,6 +779,8 @@ void BeginWater(float time)
     useProgram(effectsProgram);
     uniform1i(Uniform(effectsProgram, "image"), 0);
     uniform1i(Uniform(effectsProgram, "mode"), 0);
+    uniform2f(Uniform(effectsProgram, "lakeCenter"), x, y);
+    uniform2f(Uniform(effectsProgram, "lakeRadii"), radiusX, radiusY);
     uniform1f(Uniform(effectsProgram, "clock"), time);
 }
 void EndEffect()
@@ -790,7 +806,7 @@ void Flame(float x, float y, float scale, float time, bool frozen)
     RenderBatch::Enable(GL_TEXTURE_2D);
     RenderBatch::BindTexture(GL_TEXTURE_2D, shadow);
     RenderBatch::Color4f(1, 1, 1, 1);
-    quad(x - 30 * scale, y - 66 * scale, 60 * scale, 72 * scale, 0, 0, 1, 1);
+    quad(x - 22 * scale, y - 47 * scale, 44 * scale, 53 * scale, 0, 0, 1, 1);
     RenderBatch::Flush();
     useProgram(0);
     RenderBatch::Disable(GL_TEXTURE_2D);

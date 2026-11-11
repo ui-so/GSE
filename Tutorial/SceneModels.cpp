@@ -53,22 +53,21 @@ Model Generate(Kind kind)
     switch (kind)
     {
     case Kind::Tree:
-        Triangle(-13, -1, -4, -36, 2, -3, .29f, .23f, .17f);
-        Triangle(-4, -36, 5, -34, 13, 1, .15f, .14f, .15f);
+        Triangle(-13, -1, -4, -36, 2, -3, .24f, .32f, .36f);
+        Triangle(-4, -36, 5, -34, 13, 1, .10f, .16f, .23f);
         for (int i = 0; i < 4; i++)
         {
             float y = -15.f - i * 21, w = 35.f - i * 6;
-            Triangle(2, y - 40, -w, y - 2, -6, y + 5, .10f + i * .022f, .25f + i * .025f, .20f);
-            Triangle(2, y - 40, -6, y + 5, w, y, .058f, .17f + i * .016f, .16f);
-            Triangle(2, y - 40, -w * .76f, y - 9, -3, y - 11, .16f + i * .025f, .33f + i * .025f,
-                     .25f + i * .014f);
-            Triangle(-4, y - 11, w * .76f, y - 7, 6, y + 3, .075f, .21f, .20f);
+            Triangle(2, y - 40, -w, y - 2, -6, y + 5, .14f + i * .015f, .26f + i * .015f, .29f);
+            Triangle(2, y - 40, -6, y + 5, w, y, .085f, .16f + i * .012f, .23f);
+            Triangle(2, y - 40, -w * .76f, y - 9, -3, y - 11, .23f + i * .015f, .38f + i * .012f, .37f);
+            Triangle(-4, y - 11, w * .76f, y - 7, 6, y + 3, .11f, .23f, .27f);
         }
         break;
     case Kind::Rock:
-        Add(0, 0, -8, 21, 11, .26f, .29f, .27f);
-        Triangle(-18, -12, -5, -26, 16, -12, .40f, .43f, .38f);
-        Triangle(-5, -26, 21, -11, 5, -6, .31f, .35f, .32f);
+        Add(0, 0, -8, 21, 11, .14f, .23f, .31f);
+        Triangle(-18, -12, -5, -26, 16, -12, .36f, .47f, .46f);
+        Triangle(-5, -26, 21, -11, 5, -6, .24f, .34f, .40f);
         break;
     case Kind::Boar:
         for (int i = 0; i < 4; i++)
@@ -143,7 +142,8 @@ void Initialize()
     for (int i = 0; i < static_cast<int>(Kind::Count); i++)
     {
         const auto kind = static_cast<Kind>(i);
-        const auto key = kind == Kind::Tree ? "storybook-pine" : "model-" + std::to_string(i);
+        const auto key = kind == Kind::Tree || kind == Kind::Rock ? "moonlit-model-" + std::to_string(i)
+                                                                  : "model-" + std::to_string(i);
         auto bytes = AssetCache::LoadOrCreate(key, sizeof(Model), [kind]() {
             Model model = Generate(kind);
             AssetCache::Bytes data(sizeof(Model));
