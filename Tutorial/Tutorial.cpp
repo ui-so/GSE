@@ -26,6 +26,7 @@
 #include "LevelView.h"
 #include "AssetCache.h"
 #include "SceneModels.h"
+#include "Isometric.h"
 #include "SceneRender.h"
 
 #undef NDEBUG
@@ -352,7 +353,8 @@ void line(V a, V b, C c, float w = 1)
 V project(V p, float z = 0)
 {
     V d = p - camera;
-    return {width * .5f + (d.x - d.y) * 31, height * .53f + (d.x + d.y) * 15.5f - z};
+    const auto offset = Isometric::Project(d.x, d.y, z);
+    return {width * .5f + offset.x, height * .53f + offset.y};
 }
 void text(float x, float y, const std::wstring &s, C c = ink)
 {
@@ -632,58 +634,15 @@ void treeGeometry(V p, float s)
         line({p.x, y - 43 * s}, {p.x - w * .85f, y - 2 * s}, {.16f, .27f, .22f, .7f});
     }
 }
-void house(V p, int id)
+void house(V p)
 {
-    if (Visuals::DrawScenery(Visuals::Scenery::Cottage, p.x, p.y, 1, 1, desaturatedGeometry))
+    Visuals::DrawScenery(Visuals::Scenery::Cottage, p.x, p.y, 1, 1, desaturatedGeometry);
+    if (!desaturatedGeometry)
     {
-        if (!desaturatedGeometry)
-        {
-            glow(p + V{-3, -38}, 25, {.90f, .61f, .29f, .28f});
-            glow(p + V{42, -35}, 20, {.90f, .61f, .29f, .26f});
-        }
-        return;
-    }
-    poly({{p.x - 65, p.y - 26}, {p.x, p.y + 7}, {p.x, p.y - 66}, {p.x - 65, p.y - 96}}, {.25f, .27f, .25f});
-    poly({{p.x, p.y + 7}, {p.x + 65, p.y - 26}, {p.x + 65, p.y - 96}, {p.x, p.y - 66}}, {.18f, .22f, .21f});
-    poly({{p.x - 77, p.y - 92}, {p.x - 8, p.y - 142}, {p.x + 76, p.y - 92}, {p.x, p.y - 56}},
-         {.26f, .25f, .23f});
-    poly({{p.x - 77, p.y - 92}, {p.x - 8, p.y - 142}, {p.x - 18, p.y - 90}, {p.x, p.y - 56}},
-         {.36f, .33f, .29f});
-    for (int i = 0; i < 4; i++)
-        line({p.x - 62 + i * 15.f, p.y - 96 - i * 7.f}, {p.x - 8 + i * 17.f, p.y - 64 - i * 8.f},
-             {.12f, .16f, .15f, .65f});
-    rect(p.x + 16, p.y - 40, 14, 30, {.10f, .12f, .11f});
-    poly({{p.x - 44, p.y - 61}, {p.x - 27, p.y - 52}, {p.x - 27, p.y - 33}, {p.x - 44, p.y - 42}},
-         {.85f, .58f, .25f});
-    glow({p.x - 35, p.y - 47}, 42, gold);
-    line({p.x - 36, p.y - 56}, {p.x - 36, p.y - 38}, {.23f, .20f, .14f}, 2);
-    for (int j = 0; j < 4; j++)
-    {
-        float t = j / 3.f;
-        line({p.x - 65 + t * 65, p.y - 96 + t * 30}, {p.x - 65 + t * 65, p.y - 26 + t * 33},
-             {.115f, .105f, .08f}, 4);
-        line({p.x + t * 65, p.y - 66 - t * 30}, {p.x + t * 65, p.y + 7 - t * 33}, {.095f, .10f, .085f}, 4);
-    }
-    line({p.x - 64, p.y - 44}, {p.x, p.y - 11}, {.14f, .13f, .105f}, 4);
-    line({p.x, p.y - 11}, {p.x + 64, p.y - 44}, {.12f, .12f, .10f}, 4);
-    for (int row = 0; row < 6; row++)
-        for (int col = 0; col < 7; col++)
-        {
-            float u = (col + .3f * (row % 2)) / 7.f, v = (row + .2f) / 6.f;
-            V a{p.x - 8 + 84 * u - 69 * v - 7 * u * v, p.y - 142 + 50 * u + 50 * v - 14 * u * v};
-            line(a, a + V{8, 5}, {.42f, .39f, .30f, .5f}, 2);
-        }
-    for (int k = 0; k < 3; k++)
-        line({p.x + 19 + k * 4.f, p.y - 39}, {p.x + 19 + k * 4.f, p.y - 11}, {.26f, .22f, .16f}, 1);
-    ellipse({p.x + 27, p.y - 25}, 1.5f, 1.5f, gold);
-    rect(p.x + 28, p.y - 138, 12, 29, {.24f, .25f, .23f});
-    for (int row = 0; row < 4; row++)
-        line({p.x + 28, p.y - 135 + row * 6.f}, {p.x + 40, p.y - 135 + row * 6.f}, {.13f, .14f, .13f});
-    for (int i = 0; i < 3; i++)
-    {
-        float t = fmodf(worldTime * 7 + i * 17, 55);
-        ellipse({p.x + 35 + sinf(t * .04f + id) * 12, p.y - 143 - t}, 7 + t * .12f, 5 + t * .08f,
-                {.45f, .51f, .47f, .08f * (1 - t / 60)});
+        auto frontWindow = Isometric::Project(-.78f, 1.212f, 39);
+        auto sideWindow = Isometric::Project(1.312f, .288f, 39);
+        glow(p + V{frontWindow.x, frontWindow.y}, 25, {.90f, .61f, .29f, .28f});
+        glow(p + V{sideWindow.x, sideWindow.y}, 20, {.90f, .61f, .29f, .26f});
     }
 }
 void person(V p, C, bool hero = false, int id = 0)
@@ -1062,7 +1021,7 @@ void drawWorld()
             SceneRender::Pop();
             continue;
         }
-        if (p.x < -150 || p.x > width + 150 || p.y < -40 || p.y > height + 200)
+        if (p.x < -150 || p.x > width + 150 || p.y < -80 || p.y > height + 200)
             continue;
         SceneRender::Push(*actor, p.x, p.y);
         desaturatedGeometry = villageWorld.IsFrozen(actor->GetWorldPosition());
@@ -1078,7 +1037,7 @@ void drawWorld()
             break;
         }
         case 1:
-            house(p, o.id);
+            house(p);
             break;
         case 2:
             person(p, npcs[o.id].color, false, o.id);

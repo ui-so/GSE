@@ -1,5 +1,6 @@
 #include "SceneGraph.h"
 #include "Profiler.h"
+#include "Isometric.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -173,7 +174,8 @@ SceneGraph::Bounds SceneGraph::BuildBounds(ActorId id) const
     if (node->GetKind() != Kind::Group && node->GetLayer() == Layer::World)
     {
         auto m = node->GetWorldMatrix();
-        float x = (m.x - m.y) * 31, y = (m.x + m.y) * 15.5f - node->GetWorldElevation();
+        const auto point = Isometric::Project(m.x, m.y, node->GetWorldElevation());
+        float x = point.x, y = point.y;
         float radius = 320 * std::max({1.f, std::abs(m.a) + std::abs(m.c), std::abs(m.b) + std::abs(m.d)});
         bounds = {x - radius, y - radius, x + radius, y + radius};
     }
@@ -218,7 +220,8 @@ std::vector<const Actor *> SceneGraph::RenderQueue(Layer layer, const View *view
             BuildBounds(root_);
             boundsRevision_ = revision_;
         }
-        float x = (view->cameraX - view->cameraY) * 31, y = (view->cameraX + view->cameraY) * 15.5f;
+        const auto camera = Isometric::Project(view->cameraX, view->cameraY);
+        float x = camera.x, y = camera.y;
         VisibleVisit(
             root_,
             {x - view->width * .5f, y - view->height * .53f, x + view->width * .5f, y + view->height * .47f},

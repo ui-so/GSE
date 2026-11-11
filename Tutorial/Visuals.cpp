@@ -18,6 +18,7 @@
 #include "Visuals.h"
 #include "AssetCache.h"
 #include "EmbeddedImage.h"
+#include "CottageModel.h"
 namespace Visuals
 {
 namespace
@@ -25,14 +26,17 @@ namespace
 GLuint materials[8]{}, sprites[4]{}, shadow = 0, scene = 0, program = 0, effectsProgram = 0;
 constexpr unsigned ScenerySide = 384;
 constexpr unsigned SceneryCell = ScenerySide + 2;
-constexpr unsigned SceneryAtlasSize = 2 * SceneryCell;
-constexpr int SceneryResourceIds[] = {4210, 4211};
+constexpr unsigned SceneryAtlasWidth = SceneryCell;
+constexpr unsigned SceneryAtlasHeight = 2 * SceneryCell;
+constexpr int SceneryResourceIds[] = {4210};
+std::vector<RenderBatch::ModelVertex> cottageVertices;
+unsigned cottageGeometryIds[2]{};
 GLuint sceneryAtlas = 0;
 struct SceneryCellSize
 {
     unsigned width = 0, height = 0;
 };
-SceneryCellSize scenerySizes[2];
+SceneryCellSize scenerySizes[1];
 int sceneW = 0, sceneH = 0;
 using GenFramebuffersT = void(APIENTRY *)(GLsizei, GLuint *);
 using BindFramebufferT = void(APIENTRY *)(GLenum, GLuint);
@@ -188,8 +192,8 @@ void quad(float x, float y, float w, float h, float u, float v, float uw, float 
 void LoadScenery()
 {
     Profiler::Scope scope("scenery_atlas_load");
-    std::vector<unsigned char> atlas(size_t(SceneryAtlasSize) * SceneryAtlasSize * 4);
-    for (unsigned slot = 0; slot < 2; ++slot)
+    std::vector<unsigned char> atlas(size_t(SceneryAtlasWidth) * SceneryAtlasHeight * 4);
+    for (unsigned slot = 0; slot < std::size(SceneryResourceIds); ++slot)
     {
         std::vector<unsigned char> pixels;
         auto &size = scenerySizes[slot];
@@ -203,8 +207,8 @@ void LoadScenery()
             for (unsigned x = 0; x < size.width; ++x)
             {
                 const auto *source = &pixels[(size_t(y) * size.width + x) * 4];
-                auto *color = &atlas[(size_t(y + 1) * SceneryAtlasSize + slot * SceneryCell + x + 1) * 4];
-                auto *gray = color + size_t(SceneryCell) * SceneryAtlasSize * 4;
+                auto *color = &atlas[(size_t(y + 1) * SceneryAtlasWidth + slot * SceneryCell + x + 1) * 4];
+                auto *gray = color + size_t(SceneryCell) * SceneryAtlasWidth * 4;
                 std::copy_n(source, 4, color);
                 auto luminance =
                     static_cast<unsigned char>(source[0] * .299f + source[1] * .587f + source[2] * .114f);
@@ -212,7 +216,7 @@ void LoadScenery()
                 gray[3] = source[3];
             }
     }
-    sceneryAtlas = upload(SceneryAtlasSize, SceneryAtlasSize, atlas);
+    sceneryAtlas = upload(SceneryAtlasWidth, SceneryAtlasHeight, atlas);
     Profiler::Event("scenery_atlas_upload_bytes", std::to_string(atlas.size()));
 }
 struct Pixel
@@ -540,6 +544,14 @@ bool Initialize()
     }
     shadow = upload(384, 128, shadowAtlas);
     RenderBatch::SetSolidTexture(shadow, .75f, .5f);
+    cottageVertices = CottageModel::Load();
+    std::vector<RenderBatch::Vertex> cottageGeometry;
+    for (const auto &vertex : cottageVertices)
+        cottageGeometry.push_back({vertex.x, vertex.y, .75f, .5f, vertex.r, vertex.g, vertex.b, 1});
+    cottageGeometryIds[0] = RenderBatch::CreateGeometry(cottageGeometry, shadow);
+    for (auto &vertex : cottageGeometry)
+        vertex.r = vertex.g = vertex.b = vertex.r * .299f + vertex.g * .587f + vertex.b * .114f;
+    cottageGeometryIds[1] = RenderBatch::CreateGeometry(cottageGeometry, shadow);
     glGenTextures(1, &scene);
     loadPost();
     loadEffects();
@@ -570,20 +582,46 @@ unsigned SolidTexture()
 }
 bool DrawScenery(Scenery kind, float x, float y, float scale, float opacity, bool frozen)
 {
-    auto slot = static_cast<unsigned>(kind);
+    if (kind == Scenery::Cottage)
+    {
+        Profiler::Add("cottage_models_drawn");
+        RenderBatch::Disable(GL_TEXTURE_2D);
+        if (opacity >= 1)
+        {
+            RenderBatch::PushMatrix();
+            RenderBatch::Translatef(x, y, 0);
+            RenderBatch::Scalef(scale, scale, 1);
+            RenderBatch::Geometry(cottageGeometryIds[frozen ? 1 : 0]);
+            RenderBatch::PopMatrix();
+        }
+        else
+        {
+            RenderBatch::Begin(GL_TRIANGLES);
+            for (auto vertex : cottageVertices)
+            {
+                if (frozen)
+                    vertex.r = vertex.g = vertex.b = vertex.r * .299f + vertex.g * .587f + vertex.b * .114f;
+                RenderBatch::Color4f(vertex.r, vertex.g, vertex.b, opacity);
+                RenderBatch::Vertex2f(x + vertex.x * scale, y + vertex.y * scale);
+            }
+            RenderBatch::End();
+        }
+        return !cottageVertices.empty();
+    }
+    constexpr unsigned slot = 0;
     const auto &size = scenerySizes[slot];
     if (!size.width)
         return false;
-    const float h = (kind == Scenery::Oldwood ? 126.f : 156.f) * scale;
+    const float h = 126.f * scale;
     const float w = h * size.width / size.height;
-    const float foot = (kind == Scenery::Oldwood ? 8.f : 21.f) * scale;
-    const float u = (slot * SceneryCell + 1.5f) / SceneryAtlasSize;
-    const float v = ((frozen ? SceneryCell : 0) + 1.5f) / SceneryAtlasSize;
+    const float foot = 8.f * scale;
+    const float u = (slot * SceneryCell + 1.5f) / SceneryAtlasWidth;
+    const float v = ((frozen ? SceneryCell : 0) + 1.5f) / SceneryAtlasHeight;
     RenderBatch::Enable(GL_TEXTURE_2D);
     RenderBatch::BindTexture(GL_TEXTURE_2D, sceneryAtlas);
     RenderBatch::Color4f(1, 1, 1, opacity);
-    quad(x - w * .5f, y + foot - h, w, h, u, v, (size.width - 1.f) / SceneryAtlasSize,
-         (size.height - 1.f) / SceneryAtlasSize);
+    quad(x - w * .5f, y + foot - h, w, h, u, v, (size.width - 1.f) / SceneryAtlasWidth,
+         (size.height - 1.f) / SceneryAtlasHeight);
     RenderBatch::Disable(GL_TEXTURE_2D);
     return true;
 }
@@ -611,8 +649,8 @@ bool RunTests(std::string &report)
             return false;
         }
     }
-    report += "PASS: embedded tree and cottage decode with alpha into the scenery atlas.\n";
-    return true;
+    report += "PASS: embedded tree decodes with alpha into the scenery atlas.\n";
+    return CottageModel::RunTests(report);
 }
 void MaterialQuad(int material, const float *xy, float variation, float time)
 {
@@ -831,5 +869,9 @@ void Shutdown()
     effectsProgram = 0;
     program = 0;
     atlasPreview.clear();
+    cottageVertices.clear();
+    RenderBatch::DestroyGeometry(cottageGeometryIds[0]);
+    RenderBatch::DestroyGeometry(cottageGeometryIds[1]);
+    cottageGeometryIds[0] = cottageGeometryIds[1] = 0;
 }
 } // namespace Visuals

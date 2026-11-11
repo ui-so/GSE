@@ -4,6 +4,22 @@
   "definitions": "See PROFILING.md for inclusive timing, optional samples, scene_mode enum and repeated traversal semantics.",
   "metrics": [
     {
+      "name": "cottage_model_load",
+      "kind": "cpu_scope",
+      "unit": "ms",
+      "inclusive": true
+    },
+    {
+      "name": "cottage_models_drawn",
+      "kind": "counter",
+      "unit": "count_or_value"
+    },
+    {
+      "name": "cottage_model_cache_invalid",
+      "kind": "event",
+      "unit": "text"
+    },
+    {
       "name": "actor_count",
       "kind": "counter",
       "unit": "count_or_value"

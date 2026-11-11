@@ -254,6 +254,7 @@ void BeginFrame()
                              "instanced_draw_calls",
                              "static_draw_calls",
                              "model_instances",
+                             "cottage_models_drawn",
                              "dynamic_upload_bytes",
                              "static_upload_bytes",
                              "scene_nodes_tested",

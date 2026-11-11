@@ -2,6 +2,7 @@
 #include "RenderBatch.h"
 #include "Visuals.h"
 #include "Profiler.h"
+#include "Isometric.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -25,7 +26,8 @@ using Tint = std::array<float, 4>;
 
 Point Project(float x, float y)
 {
-    return {(x - y) * 31.f, (x + y) * 15.5f};
+    const auto point = Isometric::Project(x, y);
+    return {point.x, point.y};
 }
 
 void AddQuad(std::vector<RenderBatch::Vertex> &mesh, const Point (&corners)[4], Tint tint)

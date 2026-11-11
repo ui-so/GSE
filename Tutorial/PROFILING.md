@@ -29,6 +29,7 @@ python tools/compare_profiles.py before-summary.json after-summary.json
 - SceneGraph의 하위 트리 경계 합집합·카메라 컬링과 월드 변환 캐시. 정적 배치를 공간 그룹으로 묶는다.
 - 후처리 FBO 직접 렌더, 절반 해상도 블룸, uniform 위치 캐시. FBO 불가 시 기존 화면 복사 경로로 fallback하고 이벤트를 기록한다.
 - 풍경 스프라이트의 색상과 무채색 버전은 단일 아틀라스에 업로드한다. `scenery_atlas_load`와 `scenery_atlas_upload_bytes`는 시작할 때만 기록한다. 물가 암석과 포말은 기존 지형 패스에서 컬링되는 정적 메시다. `terrain_shore_edges_built`는 지형 생성 시에만 기록한다.
+- 집은 `CottageModel`이 지형과 같은 투영식으로 만든 정적 메시다. `cottage_model_load`와 기존 캐시 이벤트로 초기 로딩을 확인하고, `cottage_models_drawn`과 기존 정적 드로우·업로드 지표로 제출 비용을 확인한다. 컬러·무채색 메시를 초기화 때 업로드한다.
 - 튜토리얼 충돌은 4단위 공간 격자 사용. 정적 장애물의 Actor 월드 위치·활성 상태를 시뮬레이션 단계마다 갱신한 스냅샷이며 캐릭터 위치의 별도 원본이 아니다.
 - 매 프레임 고정 Sleep(8) 제거. GPU 드라이버의 화면 동기화 정책은 강제로 변경하지 않는다.
 

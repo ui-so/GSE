@@ -10,6 +10,7 @@
 #include "SceneModels.h"
 #include "SceneRender.h"
 #include "Visuals.h"
+#include "Isometric.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -50,7 +51,8 @@ void Text(float x, float y, const std::wstring &s, Color c = Ink)
 Point Project(FirstLevel::Position p, float elevation = 0)
 {
     float x = p.x - frame.cameraX, y = p.y - frame.cameraY;
-    return {frame.width * .5f + (x - y) * 31, frame.height * .53f + (x + y) * 15.5f - elevation};
+    const auto offset = Isometric::Project(x, y, elevation);
+    return {frame.width * .5f + offset.x, frame.height * .53f + offset.y};
 }
 void Line(Point a, Point b, Color c, float width = 1)
 {
